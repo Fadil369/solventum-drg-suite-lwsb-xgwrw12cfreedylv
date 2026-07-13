@@ -23,10 +23,11 @@ import {
   UNCERTAINTY_TERMS_EN,
   UNCERTAINTY_TERMS_AR,
 } from './bilingual-lexicon';
+import { PROCEDURE_LEXICON, ProcedureEntry } from './procedure-lexicon';
 import { groupEncounter } from './drg-grouper';
-import type { CodingJob, SuggestedCode, DrgResult } from './types';
+import type { CodingJob, SuggestedCode, SuggestedProcedure, DrgResult } from './types';
 export const ENGINE_VERSION = '2.0.0-bilingual';
-function stripArabicDiacritics(text: string): string {
+export function stripArabicDiacritics(text: string): string {
   return text.replace(/[ً-ْٰـ]/g, '');
 }
 export function detectLanguage(text: string): 'en' | 'ar' | 'mixed' {
@@ -36,17 +37,28 @@ export function detectLanguage(text: string): 'en' | 'ar' | 'mixed' {
   if (arabicChars > 0) return 'ar';
   return 'en';
 }
-function buildRegexForTerm(term: string): RegExp {
-  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  // Unicode-aware word boundary: JS's \b only understands ASCII word
-  // characters, so it fails on Arabic script. This lookaround works for both.
-  return new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu');
+// Cached so each term's regex is compiled once and reused across every note
+// analyzed, rather than recompiled on every call — this runs once per
+// lexicon synonym/negation/uncertainty/modifier-keyword term per note, which
+// adds up fast on CPU-constrained edge runtimes like Cloudflare Workers.
+const regexCache = new Map<string, RegExp>();
+export function buildRegexForTerm(term: string): RegExp {
+  let re = regexCache.get(term);
+  if (!re) {
+    const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    // Unicode-aware word boundary: JS's \b only understands ASCII word
+    // characters, so it fails on Arabic script. This lookaround works for both.
+    re = new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, 'iu');
+    regexCache.set(term, re);
+  }
+  return re;
 }
 // Whole-word containment check. A plain `.includes()` would false-positive on
-// e.g. "no" inside "known" or "normal" — a real bug this project hit while
-// testing negation detection ("Patient with known cirrhosis" was incorrectly
-// treated as negated because "known" contains "no").
-function containsAny(haystack: string, needles: string[]): boolean {
+// e.g. "no" inside "known" or "normal" (or "art" inside "heart") — a real bug
+// this project hit while testing negation detection ("Patient with known
+// cirrhosis" was incorrectly treated as negated because "known" contains "no").
+// Exported so cdi-rules.ts can reuse the exact same matching semantics.
+export function containsAny(haystack: string, needles: string[]): boolean {
   return needles.some((n) => buildRegexForTerm(n).test(haystack));
 }
 export interface MatchedTermInfo {
@@ -103,12 +115,39 @@ export function matchClinicalText(rawText: string): MatchedTermInfo[] {
   }
   return Array.from(matches.values());
 }
+export interface MatchedProcedureInfo {
+  entry: ProcedureEntry;
+  matched_text: string;
+}
+/** Scans normalized clinical text for mentions of OR procedures (drives the Medical/Surgical DRG partition). */
+export function matchProcedures(rawText: string): MatchedProcedureInfo[] {
+  const normalized = stripArabicDiacritics(rawText);
+  const matches = new Map<string, MatchedProcedureInfo>();
+  for (const entry of PROCEDURE_LEXICON) {
+    const synonymGroups = [entry.synonyms_en, entry.synonyms_ar];
+    for (const list of synonymGroups) {
+      if (matches.has(entry.code)) break;
+      for (const syn of list) {
+        const re = buildRegexForTerm(syn);
+        const m = re.exec(normalized);
+        if (!m) continue;
+        const contextStart = Math.max(0, m.index - 40);
+        const context = normalized.slice(contextStart, m.index).toLowerCase();
+        if (containsAny(context, NEGATION_TERMS_EN) || containsAny(context, NEGATION_TERMS_AR)) continue;
+        matches.set(entry.code, { entry, matched_text: syn });
+        break;
+      }
+    }
+  }
+  return Array.from(matches.values());
+}
 export interface CodingEngineOptions {
   age?: number;
   encounterType?: 'INPATIENT' | 'OUTPATIENT' | 'ED';
 }
 export interface CodingEngineResult {
   suggested_codes: SuggestedCode[];
+  suggested_procedures: SuggestedProcedure[];
   principal_code: string;
   secondary_codes: string[];
   drg: DrgResult;
@@ -160,14 +199,22 @@ export function runCodingEngine(rawText: string, options: CodingEngineOptions = 
       rom_weight: m.entry.rom_weight,
     }));
   }
+  const procedureMatches = matchProcedures(rawText);
+  const suggested_procedures: SuggestedProcedure[] = procedureMatches.map((p) => ({
+    code: p.entry.code,
+    desc: p.entry.desc_en,
+    desc_ar: p.entry.desc_ar,
+    matched_text: p.matched_text,
+  }));
   const drg = groupEncounter({
     principalCode: principal_code,
     secondaryCodes: secondary_codes,
+    procedureCodes: suggested_procedures.map((p) => p.code),
     age: options.age,
     encounterType: options.encounterType,
   });
   const confidence_score = Math.round((suggested_codes.reduce((s, c) => s + c.confidence, 0) / suggested_codes.length) * 100) / 100;
-  return { suggested_codes, principal_code, secondary_codes, drg, detected_language, confidence_score };
+  return { suggested_codes, suggested_procedures, principal_code, secondary_codes, drg, detected_language, confidence_score };
 }
 /** Mirrors the three-phase automation policy from the PRD (CAC -> Semi-Autonomous -> Autonomous). */
 export function classifyAutomationPhase(

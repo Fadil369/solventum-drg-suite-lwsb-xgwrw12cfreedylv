@@ -7,13 +7,16 @@ import pytest
 from src.backend.coding_engine import (
     CodingEngine,
     classify_automation_phase,
+    contains_any,
     detect_language,
     match_clinical_text,
+    match_procedures,
     run_coding_engine,
 )
 from src.backend.drg_grouper import DRG_FAMILY_TABLE, compute_case_mix_index, group_encounter
 from src.backend.cdi_api import get_cdi_nudges
 from src.backend.bilingual_lexicon import BILINGUAL_LEXICON
+from src.backend.procedure_lexicon import PROCEDURE_LEXICON
 
 
 # --- Language detection ---
@@ -280,3 +283,121 @@ def test_malignancy_groups_into_oncology_family_with_high_severity():
 def test_normal_delivery_is_low_acuity():
     drg = group_encounter("O80", [], encounter_type="INPATIENT")
     assert drg["relative_weight"] == pytest.approx(0.3)
+
+
+# --- Whole-word matching correctness (regression coverage for reviewer-flagged bugs) ---
+def test_contains_any_does_not_false_positive_on_embedded_substring():
+    # "no" is embedded inside "known"/"normal"; a naive substring check would
+    # wrongly treat these as negation. This was a real bug in this codebase.
+    assert contains_any("Patient with known cirrhosis", ["no"]) is False
+    assert contains_any("normal delivery", ["no"]) is False
+    assert contains_any("art" + "ery disease", ["art"]) is False  # "art" inside "artery"
+    assert contains_any("no fever", ["no"]) is True
+
+
+def test_bowel_obstruction_strangulation_typo_regression():
+    # Regression test for a fixed typo: keywords_en had "strangulat" (not a
+    # real word), so a note saying "strangulated" never resolved the gap.
+    entry = next(e for e in BILINGUAL_LEXICON if e["code"] == "K56.60")
+    modifier = next(m for m in entry["specificity_modifiers"] if m["id"] == "bowel_obstruction_type")
+    assert "strangulated" in modifier["keywords_en"]
+    assert "strangulat" not in modifier["keywords_en"]
+    nudges = get_cdi_nudges("Bowel obstruction, strangulated segment noted on imaging.", encounter_id="e7")
+    assert not any(n.id.startswith("K56.60_bowel_obstruction_type") for n in nudges)
+
+
+def test_cdi_nudge_keyword_matching_is_whole_word_not_substring():
+    # A modifier keyword like "art" (hypothetically) must not resolve just
+    # because it appears inside an unrelated word in the note.
+    nudges_unresolved = get_cdi_nudges("Patient has pneumonia, no further detail documented.", encounter_id="e8")
+    assert any(n.id.startswith("J18.9_pneumonia_organism") for n in nudges_unresolved)
+    # "organism" as a real whole word DOES resolve it.
+    nudges_resolved = get_cdi_nudges("Patient has pneumonia; organism pending culture results.", encounter_id="e8b")
+    assert not any(n.id.startswith("J18.9_pneumonia_organism") for n in nudges_resolved)
+
+
+# --- Rounding parity with the TypeScript grouper (Math.round semantics) ---
+@pytest.mark.parametrize(
+    "principal_code,expected_soi_at_least",
+    [
+        ("K37", 2),  # soi_weight=1 -> 0.5 -> half-up rounds to 1, tier >= 2
+        ("N39.0", 2),  # soi_weight=1
+        ("I10", 2),  # soi_weight=1
+    ],
+)
+def test_half_up_rounding_matches_javascript_math_round(principal_code, expected_soi_at_least):
+    # Python's round(0.5) == 0 (banker's rounding) would previously diverge
+    # from JavaScript's Math.round(0.5) == 1 for any principal diagnosis with
+    # soi_weight == 1 (0.5 exactly). This must match the TS grouper's tier.
+    drg = group_encounter(principal_code, [], encounter_type="INPATIENT")
+    assert drg["soi"] >= expected_soi_at_least
+
+
+# --- Procedure lexicon & Medical/Surgical DRG partition ---
+def test_procedure_lexicon_has_real_breadth():
+    assert len(PROCEDURE_LEXICON) >= 10
+    for p in PROCEDURE_LEXICON:
+        assert p["surgical_families"], f"{p['code']} must map to at least one DRG family"
+        for family in p["surgical_families"]:
+            assert family in DRG_FAMILY_TABLE
+
+
+def test_match_procedures_recognizes_appendectomy_bilingually():
+    en = match_procedures("Patient underwent appendectomy for acute appendicitis.")
+    assert any(p["entry"]["code"] == "PR-APPY" for p in en)
+    ar = match_procedures("تم للمريض استئصال الزائدة الدودية.")
+    assert any(p["entry"]["code"] == "PR-APPY" for p in ar)
+
+
+def test_negated_procedure_is_not_detected():
+    matches = match_procedures("No appendectomy was performed; managed medically.")
+    assert not any(p["entry"]["code"] == "PR-APPY" for p in matches)
+
+
+def test_appendectomy_upgrades_to_surgical_partition():
+    medical = group_encounter("K37", [], encounter_type="INPATIENT")
+    surgical = group_encounter("K37", [], procedure_codes=["PR-APPY"], encounter_type="INPATIENT")
+    assert medical["partition"] == "Medical"
+    assert surgical["partition"] == "Surgical"
+    assert surgical["relative_weight"] > medical["relative_weight"]
+    assert surgical["subclass"].split("-")[1] == "S"
+    assert medical["subclass"].split("-")[1] == "M"
+    assert surgical["procedure"]["code"] == "PR-APPY"
+
+
+def test_procedure_only_upgrades_matching_family():
+    # A cholecystectomy procedure must not upgrade an unrelated family (e.g. hypertension).
+    drg = group_encounter("I10", [], procedure_codes=["PR-CHOLE"], encounter_type="INPATIENT")
+    assert drg["partition"] == "Medical"
+    assert drg["procedure"] is None
+
+
+def test_multiple_matching_procedures_picks_highest_weight_multiplier():
+    # Both PCI and CABG map to the AMI family; CABG has the higher multiplier
+    # and should win.
+    drg = group_encounter("I21.9", [], procedure_codes=["PR-PCI", "PR-CABG"], encounter_type="INPATIENT")
+    assert drg["procedure"]["code"] == "PR-CABG"
+
+
+def test_run_coding_engine_includes_suggested_procedures_and_partition():
+    result = run_coding_engine("Patient underwent appendectomy for acute appendicitis with perforation.")
+    assert any(p["code"] == "PR-APPY" for p in result["suggested_procedures"])
+    assert result["drg"]["partition"] == "Surgical"
+
+
+def test_explanation_trace_is_bilingual_and_nonempty():
+    drg = group_encounter("A41.9", ["N18.9"], age=70, encounter_type="INPATIENT")
+    assert len(drg["explanation"]["en"]) >= 3
+    assert len(drg["explanation"]["ar"]) == len(drg["explanation"]["en"])
+    assert all(isinstance(line, str) and line for line in drg["explanation"]["en"])
+    assert all(isinstance(line, str) and line for line in drg["explanation"]["ar"])
+
+
+def test_coding_engine_run_coding_job_surfaces_suggested_procedures():
+    engine = CodingEngine()
+    result = engine.run_coding_job(
+        "Patient underwent appendectomy for acute appendicitis.",
+        {"visit_complexity": "inpatient", "id": "enc-3"},
+    )
+    assert any(p["code"] == "PR-APPY" for p in result["suggested_procedures"])
+    assert result["drg"]["partition"] == "Surgical"

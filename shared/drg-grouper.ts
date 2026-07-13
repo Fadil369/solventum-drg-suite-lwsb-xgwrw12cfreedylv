@@ -19,6 +19,7 @@
  * against a certified grouper before production reimbursement decisions.
  */
 import { findLexiconEntry } from './bilingual-lexicon';
+import { findProcedureEntry } from './procedure-lexicon';
 import type { DrgResult } from './types';
 interface DrgFamilyMeta {
   title_en: string;
@@ -106,6 +107,7 @@ export const DRG_FAMILY_TABLE: Record<string, DrgFamilyMeta> = {
 export interface GroupEncounterParams {
   principalCode: string;
   secondaryCodes?: string[];
+  procedureCodes?: string[];
   age?: number;
   encounterType?: 'INPATIENT' | 'OUTPATIENT' | 'ED';
 }
@@ -115,25 +117,75 @@ function tierFromScore(score: number): 1 | 2 | 3 | 4 {
   if (score >= 1) return 2;
   return 1;
 }
-export function groupEncounter({ principalCode, secondaryCodes = [], age, encounterType = 'INPATIENT' }: GroupEncounterParams): DrgResult {
+export function groupEncounter({
+  principalCode,
+  secondaryCodes = [],
+  procedureCodes = [],
+  age,
+  encounterType = 'INPATIENT',
+}: GroupEncounterParams): DrgResult {
   const principalEntry = findLexiconEntry(principalCode);
   const family = principalEntry?.drg_family ?? '999';
   const familyMeta = DRG_FAMILY_TABLE[family] ?? DRG_FAMILY_TABLE['999'];
   const uniqueSecondary = Array.from(new Set(secondaryCodes.filter((c) => c !== principalCode)));
   const secondaryEntries = uniqueSecondary.map((c) => findLexiconEntry(c)).filter((e): e is NonNullable<typeof e> => Boolean(e));
+  const explanationEn: string[] = [];
+  const explanationAr: string[] = [];
   const principalSoiContribution = principalEntry ? Math.round(principalEntry.soi_weight * 0.5) : 0;
   const principalRomContribution = principalEntry ? Math.round(principalEntry.rom_weight * 0.5) : 0;
+  if (principalEntry) {
+    explanationEn.push(`Principal diagnosis "${principalEntry.desc_en}" (${principalCode}) anchors DRG family ${family} and contributes ${principalSoiContribution} SOI / ${principalRomContribution} ROM point(s).`);
+    explanationAr.push(`التشخيص الأساسي "${principalEntry.desc_ar}" (${principalCode}) يحدد فئة DRG رقم ${family} ويساهم بـ ${principalSoiContribution} نقطة شدة و ${principalRomContribution} نقطة خطر وفاة.`);
+  } else {
+    explanationEn.push(`No lexicon match for principal code ${principalCode}; falling back to family ${family}.`);
+    explanationAr.push(`لا توجد مطابقة في المعجم للرمز الأساسي ${principalCode}؛ تم استخدام الفئة الافتراضية ${family}.`);
+  }
   let soiScore = principalSoiContribution + secondaryEntries.reduce((sum, e) => sum + e.soi_weight, 0);
   let romScore = principalRomContribution + secondaryEntries.reduce((sum, e) => sum + e.rom_weight, 0);
+  if (secondaryEntries.length > 0) {
+    const soiSum = secondaryEntries.reduce((sum, e) => sum + e.soi_weight, 0);
+    const romSum = secondaryEntries.reduce((sum, e) => sum + e.rom_weight, 0);
+    explanationEn.push(`${secondaryEntries.length} secondary diagnosis(es) (${secondaryEntries.map((e) => e.code).join(', ')}) add ${soiSum} SOI / ${romSum} ROM point(s).`);
+    explanationAr.push(`${secondaryEntries.length} تشخيص(ات) ثانوية (${secondaryEntries.map((e) => e.code).join(', ')}) تضيف ${soiSum} نقطة شدة و ${romSum} نقطة خطر وفاة.`);
+  }
   if (typeof age === 'number') {
-    if (age >= 75) romScore += 2;
-    else if (age >= 65) romScore += 1;
-    if (age < 1) romScore += 1; // neonatal risk, reflecting APR-DRG's all-ages coverage incl. pediatrics
+    if (age >= 75) {
+      romScore += 2;
+      explanationEn.push(`Age ${age} (≥75) adds 2 ROM points.`);
+      explanationAr.push(`العمر ${age} (≥75) يضيف نقطتي خطر وفاة.`);
+    } else if (age >= 65) {
+      romScore += 1;
+      explanationEn.push(`Age ${age} (≥65) adds 1 ROM point.`);
+      explanationAr.push(`العمر ${age} (≥65) يضيف نقطة خطر وفاة واحدة.`);
+    }
+    if (age < 1) {
+      romScore += 1; // neonatal risk, reflecting APR-DRG's all-ages coverage incl. pediatrics
+      explanationEn.push('Neonatal age (<1 year) adds 1 ROM point.');
+      explanationAr.push('عمر حديثي الولادة (أقل من سنة) يضيف نقطة خطر وفاة واحدة.');
+    }
   }
   const soi = tierFromScore(soiScore);
   const rom = tierFromScore(romScore);
+  explanationEn.push(`Severity score ${soiScore} → SOI tier ${soi}; mortality score ${romScore} → ROM tier ${rom}.`);
+  explanationAr.push(`درجة الشدة ${soiScore} ← المستوى ${soi}؛ درجة خطر الوفاة ${romScore} ← المستوى ${rom}.`);
   const methodology: DrgResult['methodology'] = encounterType === 'OUTPATIENT' ? 'BrainSAIT-EAPG' : 'BrainSAIT-APR-DRG';
-  const relative_weight = familyMeta.base_weight[soi - 1];
+  // Medical vs. Surgical partition: a matching OR procedure materially
+  // upgrades resource consumption within the same clinical category, exactly
+  // as real APR-DRG methodology partitions each DRG into Medical/Surgical.
+  const matchingProcedures = Array.from(new Set(procedureCodes))
+    .map((c) => findProcedureEntry(c))
+    .filter((p): p is NonNullable<typeof p> => p !== undefined && p.surgical_families.includes(family));
+  const chosenProcedure = matchingProcedures.sort((a, b) => b.weight_multiplier - a.weight_multiplier)[0];
+  const partition: DrgResult['partition'] = chosenProcedure ? 'Surgical' : 'Medical';
+  const baseWeight = familyMeta.base_weight[soi - 1];
+  const relative_weight = chosenProcedure ? Math.round(baseWeight * chosenProcedure.weight_multiplier * 1000) / 1000 : baseWeight;
+  if (chosenProcedure) {
+    explanationEn.push(`Procedure "${chosenProcedure.desc_en}" detected → Surgical partition, relative weight ×${chosenProcedure.weight_multiplier} (${baseWeight} → ${relative_weight}).`);
+    explanationAr.push(`تم رصد إجراء "${chosenProcedure.desc_ar}" ← القسم الجراحي، الوزن النسبي ×${chosenProcedure.weight_multiplier} (${baseWeight} ← ${relative_weight}).`);
+  } else {
+    explanationEn.push(`No matching OR procedure detected → Medical partition, relative weight ${relative_weight}.`);
+    explanationAr.push(`لم يتم رصد إجراء جراحي مطابق ← القسم الطبي، الوزن النسبي ${relative_weight}.`);
+  }
   return {
     code: family,
     title_en: familyMeta.title_en,
@@ -141,8 +193,13 @@ export function groupEncounter({ principalCode, secondaryCodes = [], age, encoun
     soi,
     rom,
     relative_weight,
-    subclass: `${family}-${soi}`,
+    subclass: `${family}-${partition === 'Surgical' ? 'S' : 'M'}-${soi}`,
     methodology,
+    partition,
+    procedure: chosenProcedure
+      ? { code: chosenProcedure.code, desc_en: chosenProcedure.desc_en, desc_ar: chosenProcedure.desc_ar }
+      : undefined,
+    explanation: { en: explanationEn, ar: explanationAr },
   };
 }
 /** Computes the Case Mix Index (mean relative weight) across a set of grouped encounters. */

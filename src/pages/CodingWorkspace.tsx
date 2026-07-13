@@ -8,7 +8,8 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CheckCircle, XCircle, Send, ThumbsUp, FilePlus2, Activity, HeartPulse, Scale3d, Languages } from 'lucide-react';
+import { CheckCircle, XCircle, Send, ThumbsUp, FilePlus2, Activity, HeartPulse, Scale3d, Languages, Stethoscope, Scissors } from 'lucide-react';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import type { CodingJob } from '@shared/types';
@@ -106,6 +107,15 @@ export function CodingWorkspace() {
                 </div>
                 <div className="flex flex-wrap items-center gap-4 md:gap-6 md:ms-auto">
                   <div className="flex items-center gap-2">
+                    {drg.partition === 'Surgical' ? <Scissors className="h-4 w-4 text-purple-500" /> : <Stethoscope className="h-4 w-4 text-teal-500" />}
+                    <div>
+                      <p className="text-xs text-muted-foreground">{t('coding.partition')}</p>
+                      <Badge variant={drg.partition === 'Surgical' ? 'default' : 'secondary'}>
+                        {t(drg.partition === 'Surgical' ? 'coding.partition.surgical' : 'coding.partition.medical')}
+                      </Badge>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <Activity className="h-4 w-4 text-orange-500" />
                     <div>
                       <p className="text-xs text-muted-foreground">{t('coding.soi')}</p>
@@ -128,6 +138,28 @@ export function CodingWorkspace() {
                   </div>
                 </div>
               </div>
+              {drg.procedure && (
+                <p className="mt-3 text-sm flex items-center gap-1.5 text-purple-700 dark:text-purple-400">
+                  <Scissors className="h-3.5 w-3.5 shrink-0" />
+                  {t('coding.procedureDetected')}: {language === 'ar' ? drg.procedure.desc_ar : drg.procedure.desc_en}
+                </p>
+              )}
+              {drg.explanation && (
+                <Accordion type="single" collapsible className="mt-2">
+                  <AccordionItem value="explanation" className="border-b-0">
+                    <AccordionTrigger className="text-xs text-muted-foreground py-1 hover:no-underline">
+                      {t('coding.explanation')}
+                    </AccordionTrigger>
+                    <AccordionContent>
+                      <ul className="text-xs text-muted-foreground space-y-1 list-disc ps-4" dir="auto">
+                        {(language === 'ar' ? drg.explanation.ar : drg.explanation.en).map((line, i) => (
+                          <li key={i}>{line}</li>
+                        ))}
+                      </ul>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              )}
             </CardContent>
           </Card>
         )}

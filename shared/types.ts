@@ -54,11 +54,19 @@ export interface SuggestedCode {
   soi_weight?: number; // contribution to Severity of Illness (0-3)
   rom_weight?: number; // contribution to Risk of Mortality (0-3)
 }
+export interface SuggestedProcedure {
+  code: string;
+  desc: string;
+  desc_ar?: string;
+  matched_text?: string;
+}
 // --- BRAINSAIT APR-DRG GROUPER RESULT ---
 // A deterministic, explainable implementation of the APR-DRG methodology:
 // assigns a base DRG family from the principal diagnosis, then derives
 // Severity of Illness (SOI) and Risk of Mortality (ROM) subclasses (1-4)
-// from the weighted contribution of secondary diagnoses.
+// from the weighted contribution of secondary diagnoses. When a matching
+// OR procedure is detected, the encounter is upgraded from the Medical to
+// the Surgical partition, as in real APR-DRG methodology.
 export interface DrgResult {
   code: string; // e.g. "194"
   title_en: string;
@@ -66,13 +74,18 @@ export interface DrgResult {
   soi: 1 | 2 | 3 | 4; // Severity of Illness
   rom: 1 | 2 | 3 | 4; // Risk of Mortality
   relative_weight: number; // drives Case Mix Index (CMI)
-  subclass: string; // e.g. "194-2" (DRG-SOI)
+  subclass: string; // e.g. "194-M-2" (DRG-Partition-SOI)
   methodology: 'BrainSAIT-APR-DRG' | 'BrainSAIT-EAPG';
+  partition: 'Medical' | 'Surgical';
+  procedure?: { code: string; desc_en: string; desc_ar: string };
+  /** Bilingual, human-readable trace of every factor that produced this result. */
+  explanation: { en: string[]; ar: string[] };
 }
 export interface CodingJob {
   id: string;
   encounter_id: string;
   suggested_codes: SuggestedCode[];
+  suggested_procedures?: SuggestedProcedure[];
   status: 'NEEDS_REVIEW' | 'AUTO_DROP' | 'SENT_TO_NPHIES' | 'REJECTED';
   confidence_score: number;
   phase: 'CAC' | 'SEMI_AUTONOMOUS' | 'AUTONOMOUS';

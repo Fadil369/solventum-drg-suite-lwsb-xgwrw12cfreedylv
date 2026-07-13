@@ -724,7 +724,7 @@ export const BILINGUAL_LEXICON: LexiconEntry[] = [
     specificity_modifiers: [
       {
         id: 'bowel_obstruction_type',
-        keywords_en: ['partial', 'complete', 'strangulat'],
+        keywords_en: ['partial', 'complete', 'strangulated', 'strangulation'],
         keywords_ar: ['جزئي', 'كامل', 'اختناق'],
         prompt_en: 'Specify whether the obstruction is partial or complete, and whether strangulation is present.',
         prompt_ar: 'يرجى تحديد ما إذا كان الانسداد جزئيًا أو كاملاً، ووجود اختناق معوي من عدمه.',

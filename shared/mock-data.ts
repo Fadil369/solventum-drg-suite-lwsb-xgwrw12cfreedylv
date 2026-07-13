@@ -31,6 +31,8 @@ export const MOCK_CLINICAL_NOTES: string[] = [
   'Patient complains of cough and fever. Suspected pneumonia.',
   'مريض يعاني من التهاب رئوي بكتيري وكسر في الساق اليسرى.',
   'المريض حالة معروفة بداء السكري ويأتي للمراجعة الروتينية دون مضاعفات.',
+  'Patient underwent appendectomy for acute appendicitis with perforation.',
+  'مريض تم له استئصال المرارة بسبب التهاب المرارة الحاد.',
 ];
 export const MOCK_PATIENTS: Patient[] = [
   { id: 'p1', national_id: '1012345678', given_name: 'Fatima', family_name: 'Al-Fahad' },
@@ -85,6 +87,8 @@ const NOTE_PLAN: NotePlan[] = [
   { encounter_id: 'e3', note: MOCK_CLINICAL_NOTES[2], encounter_type: 'ED', age: 29 }, // appendicitis suspected
   { encounter_id: 'e4', note: MOCK_CLINICAL_NOTES[7], encounter_type: 'ED', age: 68 }, // STEMI
   { encounter_id: 'e5', note: MOCK_CLINICAL_NOTES[8], encounter_type: 'ED', age: 59 }, // hypertension crisis
+  { encounter_id: 'e1', note: MOCK_CLINICAL_NOTES[15], encounter_type: 'INPATIENT', age: 33 }, // appendectomy -> Surgical partition
+  { encounter_id: 'e2', note: MOCK_CLINICAL_NOTES[16], encounter_type: 'INPATIENT', age: 52 }, // Arabic-only: cholecystectomy -> Surgical partition
 ];
 export const MOCK_CODING_JOBS: CodingJob[] = NOTE_PLAN.map((plan, index) => {
   const engineResult = runCodingEngine(plan.note, { age: plan.age, encounterType: plan.encounter_type });
@@ -93,6 +97,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = NOTE_PLAN.map((plan, index) => {
     id: `job${index + 1}`,
     encounter_id: plan.encounter_id,
     suggested_codes: engineResult.suggested_codes,
+    suggested_procedures: engineResult.suggested_procedures,
     status,
     confidence_score: engineResult.confidence_score,
     phase,

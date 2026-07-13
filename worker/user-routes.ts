@@ -104,6 +104,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         id: jobId,
         encounter_id,
         suggested_codes: engineResult.suggested_codes,
+        suggested_procedures: engineResult.suggested_procedures,
         status,
         confidence_score: engineResult.confidence_score,
         phase,

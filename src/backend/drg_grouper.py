@@ -7,6 +7,18 @@ BrainSAIT's own calibration — not a certified 3M grouper.
 from typing import Dict, List, Optional, Tuple, TypedDict
 
 from .bilingual_lexicon import find_lexicon_entry
+from .procedure_lexicon import find_procedure_entry
+
+
+class DrgExplanation(TypedDict):
+    en: List[str]
+    ar: List[str]
+
+
+class DrgProcedureRef(TypedDict):
+    code: str
+    desc_en: str
+    desc_ar: str
 
 
 class DrgResult(TypedDict):
@@ -18,6 +30,16 @@ class DrgResult(TypedDict):
     relative_weight: float
     subclass: str
     methodology: str
+    partition: str
+    procedure: Optional[DrgProcedureRef]
+    explanation: DrgExplanation
+
+
+def _round_half_up(value: float) -> int:
+    """Half-up rounding to match JavaScript's Math.round (Python's round() uses
+    banker's rounding, e.g. round(0.5) == 0, which silently diverges from the
+    TypeScript grouper for any principal diagnosis with soi_weight/rom_weight == 1)."""
+    return int(value + 0.5)
 
 
 class DrgFamilyMeta(TypedDict):
@@ -107,30 +129,81 @@ def _tier_from_score(score: int) -> int:
 def group_encounter(
     principal_code: str,
     secondary_codes: Optional[List[str]] = None,
+    procedure_codes: Optional[List[str]] = None,
     age: Optional[float] = None,
     encounter_type: str = "INPATIENT",
 ) -> DrgResult:
     secondary_codes = secondary_codes or []
+    procedure_codes = procedure_codes or []
     principal_entry = find_lexicon_entry(principal_code)
     family = principal_entry["drg_family"] if principal_entry else "999"
     family_meta = DRG_FAMILY_TABLE.get(family, DRG_FAMILY_TABLE["999"])
     unique_secondary = list(dict.fromkeys(c for c in secondary_codes if c != principal_code))
     secondary_entries = [e for e in (find_lexicon_entry(c) for c in unique_secondary) if e]
-    principal_soi = round(principal_entry["soi_weight"] * 0.5) if principal_entry else 0
-    principal_rom = round(principal_entry["rom_weight"] * 0.5) if principal_entry else 0
+    explanation_en: List[str] = []
+    explanation_ar: List[str] = []
+    principal_soi = _round_half_up(principal_entry["soi_weight"] * 0.5) if principal_entry else 0
+    principal_rom = _round_half_up(principal_entry["rom_weight"] * 0.5) if principal_entry else 0
+    if principal_entry:
+        explanation_en.append(
+            f'Principal diagnosis "{principal_entry["desc_en"]}" ({principal_code}) anchors DRG family {family} '
+            f'and contributes {principal_soi} SOI / {principal_rom} ROM point(s).'
+        )
+        explanation_ar.append(
+            f'التشخيص الأساسي "{principal_entry["desc_ar"]}" ({principal_code}) يحدد فئة DRG رقم {family} '
+            f'ويساهم بـ {principal_soi} نقطة شدة و {principal_rom} نقطة خطر وفاة.'
+        )
+    else:
+        explanation_en.append(f"No lexicon match for principal code {principal_code}; falling back to family {family}.")
+        explanation_ar.append(f"لا توجد مطابقة في المعجم للرمز الأساسي {principal_code}؛ تم استخدام الفئة الافتراضية {family}.")
     soi_score = principal_soi + sum(e["soi_weight"] for e in secondary_entries)
     rom_score = principal_rom + sum(e["rom_weight"] for e in secondary_entries)
+    if secondary_entries:
+        soi_sum = sum(e["soi_weight"] for e in secondary_entries)
+        rom_sum = sum(e["rom_weight"] for e in secondary_entries)
+        codes_joined = ", ".join(e["code"] for e in secondary_entries)
+        explanation_en.append(f"{len(secondary_entries)} secondary diagnosis(es) ({codes_joined}) add {soi_sum} SOI / {rom_sum} ROM point(s).")
+        explanation_ar.append(f"{len(secondary_entries)} تشخيص(ات) ثانوية ({codes_joined}) تضيف {soi_sum} نقطة شدة و {rom_sum} نقطة خطر وفاة.")
     if age is not None:
         if age >= 75:
             rom_score += 2
+            explanation_en.append(f"Age {age} (≥75) adds 2 ROM points.")
+            explanation_ar.append(f"العمر {age} (≥75) يضيف نقطتي خطر وفاة.")
         elif age >= 65:
             rom_score += 1
+            explanation_en.append(f"Age {age} (≥65) adds 1 ROM point.")
+            explanation_ar.append(f"العمر {age} (≥65) يضيف نقطة خطر وفاة واحدة.")
         if age < 1:
             rom_score += 1
+            explanation_en.append("Neonatal age (<1 year) adds 1 ROM point.")
+            explanation_ar.append("عمر حديثي الولادة (أقل من سنة) يضيف نقطة خطر وفاة واحدة.")
     soi = _tier_from_score(soi_score)
     rom = _tier_from_score(rom_score)
+    explanation_en.append(f"Severity score {soi_score} → SOI tier {soi}; mortality score {rom_score} → ROM tier {rom}.")
+    explanation_ar.append(f"درجة الشدة {soi_score} ← المستوى {soi}؛ درجة خطر الوفاة {rom_score} ← المستوى {rom}.")
     methodology = "BrainSAIT-EAPG" if encounter_type == "OUTPATIENT" else "BrainSAIT-APR-DRG"
-    relative_weight = family_meta["base_weight"][soi - 1]
+    # Medical vs. Surgical partition: a matching OR procedure materially
+    # upgrades resource consumption within the same clinical category, exactly
+    # as real APR-DRG methodology partitions each DRG into Medical/Surgical.
+    matching_procedures = [
+        p for p in (find_procedure_entry(c) for c in dict.fromkeys(procedure_codes)) if p and family in p["surgical_families"]
+    ]
+    chosen_procedure = max(matching_procedures, key=lambda p: p["weight_multiplier"], default=None)
+    partition = "Surgical" if chosen_procedure else "Medical"
+    base_weight = family_meta["base_weight"][soi - 1]
+    relative_weight = round(base_weight * chosen_procedure["weight_multiplier"], 3) if chosen_procedure else base_weight
+    if chosen_procedure:
+        explanation_en.append(
+            f'Procedure "{chosen_procedure["desc_en"]}" detected → Surgical partition, relative weight '
+            f'×{chosen_procedure["weight_multiplier"]} ({base_weight} → {relative_weight}).'
+        )
+        explanation_ar.append(
+            f'تم رصد إجراء "{chosen_procedure["desc_ar"]}" ← القسم الجراحي، الوزن النسبي '
+            f'×{chosen_procedure["weight_multiplier"]} ({base_weight} ← {relative_weight}).'
+        )
+    else:
+        explanation_en.append(f"No matching OR procedure detected → Medical partition, relative weight {relative_weight}.")
+        explanation_ar.append(f"لم يتم رصد إجراء جراحي مطابق ← القسم الطبي، الوزن النسبي {relative_weight}.")
     return {
         "code": family,
         "title_en": family_meta["title_en"],
@@ -138,8 +211,15 @@ def group_encounter(
         "soi": soi,
         "rom": rom,
         "relative_weight": relative_weight,
-        "subclass": f"{family}-{soi}",
+        "subclass": f"{family}-{'S' if partition == 'Surgical' else 'M'}-{soi}",
         "methodology": methodology,
+        "partition": partition,
+        "procedure": (
+            {"code": chosen_procedure["code"], "desc_en": chosen_procedure["desc_en"], "desc_ar": chosen_procedure["desc_ar"]}
+            if chosen_procedure
+            else None
+        ),
+        "explanation": {"en": explanation_en, "ar": explanation_ar},
     }
 
 

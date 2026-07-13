@@ -1192,7 +1192,8 @@ BILINGUAL_LEXICON: List[LexiconEntry] = [
                 "keywords_en": [
                     "partial",
                     "complete",
-                    "strangulat",
+                    "strangulated",
+                    "strangulation",
                 ],
                 "keywords_ar": [
                     "جزئي",

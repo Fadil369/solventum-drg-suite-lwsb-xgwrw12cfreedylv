@@ -3,8 +3,7 @@ from typing import List, Optional, Literal
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from .bilingual_lexicon import find_lexicon_entry
-from .coding_engine import match_clinical_text
+from .coding_engine import contains_any, detect_language, match_clinical_text, match_procedures, strip_diacritics
 from .drg_grouper import group_encounter
 
 app = FastAPI(
@@ -52,14 +51,21 @@ def get_cdi_nudges(note: str, encounter_id: str = "draft", age: Optional[float] 
         return []
     principal_code = matches[0]["entry"]["code"]
     secondary_codes = [m["entry"]["code"] for m in matches[1:]]
-    baseline = group_encounter(principal_code, secondary_codes, age=age, encounter_type=encounter_type)
-    note_lower = note.lower()
+    procedure_codes = [p["entry"]["code"] for p in match_procedures(note)]
+    baseline = group_encounter(principal_code, secondary_codes, procedure_codes=procedure_codes, age=age, encounter_type=encounter_type)
+    # Normalized (diacritic-stripped) so a modifier keyword still resolves even
+    # if the clinician wrote the note with Arabic diacritics (tashkeel) —
+    # matches the normalization already applied in match_clinical_text.
+    normalized_note = strip_diacritics(note)
     nudges: List[Nudge] = []
     for match in matches:
         entry = match["entry"]
         for modifier in entry.get("specificity_modifiers", []):
-            resolved_en = any(k.lower() in note_lower for k in modifier["keywords_en"])
-            resolved_ar = any(k in note for k in modifier["keywords_ar"])
+            # Whole-word matching (not substring `in`) so a keyword like "art"
+            # can't false-positive-resolve a gap by matching inside an
+            # unrelated word like "heart".
+            resolved_en = contains_any(normalized_note, modifier["keywords_en"])
+            resolved_ar = contains_any(normalized_note, modifier["keywords_ar"])
             if resolved_en or resolved_ar:
                 continue  # documentation already closes this gap
             target_soi = min(4, baseline["soi"] + modifier["soi_gain"])
@@ -89,8 +95,6 @@ async def analyze_draft_note(request: AnalyzeRequest):
     returns bilingual CDI "nudges" to prompt the physician for greater
     specificity before saving — before the note ever reaches a coder.
     """
-    from .coding_engine import detect_language
-
     nudges = get_cdi_nudges(
         request.clinical_note,
         encounter_id=request.encounter_id or "draft",

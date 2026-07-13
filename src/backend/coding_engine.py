@@ -9,6 +9,7 @@ principal diagnosis, and hands off to the APR-DRG grouper for a fully
 explainable (non-random) coding decision.
 """
 import re
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, TypedDict
 
 from .bilingual_lexicon import (
@@ -18,6 +19,7 @@ from .bilingual_lexicon import (
     UNCERTAINTY_TERMS_AR,
     UNCERTAINTY_TERMS_EN,
 )
+from .procedure_lexicon import PROCEDURE_LEXICON
 from .drg_grouper import DrgResult, group_encounter
 
 ENGINE_VERSION = "2.0.0-bilingual"
@@ -40,10 +42,18 @@ class SuggestedCode(TypedDict, total=False):
     rom_weight: int
 
 
+class SuggestedProcedure(TypedDict):
+    code: str
+    desc: str
+    desc_ar: str
+    matched_text: str
+
+
 class CodingResult(TypedDict):
     engine_version: str
     source_text: str
     suggested_codes: List[SuggestedCode]
+    suggested_procedures: List[SuggestedProcedure]
     final_codes: List[SuggestedCode]
     status: str
     confidence_score: float
@@ -54,7 +64,7 @@ class CodingResult(TypedDict):
     detected_language: str
 
 
-def _strip_diacritics(text: str) -> str:
+def strip_diacritics(text: str) -> str:
     return ARABIC_DIACRITICS_RE.sub("", text)
 
 
@@ -68,17 +78,27 @@ def detect_language(text: str) -> str:
     return "en"
 
 
-def _contains_any(haystack: str, needles: List[str]) -> bool:
+@lru_cache(maxsize=None)
+def _word_boundary_pattern(term: str) -> "re.Pattern[str]":
+    # Cached so each term's regex is compiled once and reused across every
+    # note analyzed, rather than recompiled on every call (this runs once per
+    # lexicon synonym/negation/uncertainty/modifier-keyword term per note).
+    return re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE)
+
+
+def contains_any(haystack: str, needles: List[str]) -> bool:
     # Whole-word containment check. A plain substring `in` check would
-    # false-positive on e.g. "no" inside "known" or "normal" — a real bug
-    # this project hit while testing negation detection ("Patient with known
-    # cirrhosis" was incorrectly treated as negated because "known" contains "no").
-    return any(re.search(r"\b" + re.escape(n) + r"\b", haystack, re.IGNORECASE) for n in needles)
+    # false-positive on e.g. "no" inside "known" or "normal" (or "art" inside
+    # "heart") — a real bug this project hit while testing negation detection
+    # ("Patient with known cirrhosis" was incorrectly treated as negated
+    # because "known" contains "no"). Exported so cdi_api.py can reuse the
+    # exact same matching semantics.
+    return any(_word_boundary_pattern(n).search(haystack) for n in needles)
 
 
 def match_clinical_text(raw_text: str) -> List[Dict[str, Any]]:
     """Scans normalized clinical text against every lexicon entry in both languages."""
-    normalized = _strip_diacritics(raw_text)
+    normalized = strip_diacritics(raw_text)
     matches: Dict[str, Dict[str, Any]] = {}
     for entry in BILINGUAL_LEXICON:
         if entry["code"] in matches:
@@ -91,17 +111,15 @@ def match_clinical_text(raw_text: str) -> List[Dict[str, Any]]:
         for synonyms, lang in groups:
             found = False
             for syn in synonyms:
-                flags = re.IGNORECASE if lang == "en" else 0
-                pattern = r"\b" + re.escape(syn) + r"\b"
-                m = re.search(pattern, normalized, flags)
+                m = _word_boundary_pattern(syn).search(normalized)
                 if not m:
                     continue
-                context = normalized[max(0, m.start() - 40): m.start()].lower()
+                context = normalized[max(0, m.start() - 40): m.start()]
                 negation_terms = NEGATION_TERMS_AR if lang == "ar" else NEGATION_TERMS_EN
-                if _contains_any(context, negation_terms):
+                if contains_any(context, negation_terms):
                     continue
                 uncertainty_terms = UNCERTAINTY_TERMS_AR if lang == "ar" else UNCERTAINTY_TERMS_EN
-                uncertain = _contains_any(context, uncertainty_terms)
+                uncertain = contains_any(context, uncertainty_terms)
                 confidence = max(0.4, entry["base_confidence"] - 0.15) if uncertain else entry["base_confidence"]
                 matches[entry["code"]] = {
                     "entry": entry,
@@ -118,6 +136,30 @@ def match_clinical_text(raw_text: str) -> List[Dict[str, Any]]:
     for info in list(matches.values()):
         for superseded in info["entry"].get("supersedes", []):
             matches.pop(superseded, None)
+    return list(matches.values())
+
+
+def match_procedures(raw_text: str) -> List[Dict[str, Any]]:
+    """Scans normalized clinical text for mentions of OR procedures (drives the Medical/Surgical DRG partition)."""
+    normalized = strip_diacritics(raw_text)
+    matches: Dict[str, Dict[str, Any]] = {}
+    for entry in PROCEDURE_LEXICON:
+        if entry["code"] in matches:
+            continue
+        for synonyms in (entry["synonyms_en"], entry["synonyms_ar"]):
+            found = False
+            for syn in synonyms:
+                m = _word_boundary_pattern(syn).search(normalized)
+                if not m:
+                    continue
+                context = normalized[max(0, m.start() - 40): m.start()]
+                if contains_any(context, NEGATION_TERMS_EN) or contains_any(context, NEGATION_TERMS_AR):
+                    continue
+                matches[entry["code"]] = {"entry": entry, "matched_text": syn}
+                found = True
+                break
+            if found:
+                break
     return list(matches.values())
 
 
@@ -162,10 +204,27 @@ def run_coding_engine(text: str, age: Optional[float] = None, encounter_type: st
                 "soi_weight": e["soi_weight"],
                 "rom_weight": e["rom_weight"],
             })
-    drg = group_encounter(principal_code, secondary_codes, age=age, encounter_type=encounter_type)
+    procedure_matches = match_procedures(text)
+    suggested_procedures: List[SuggestedProcedure] = [
+        {
+            "code": p["entry"]["code"],
+            "desc": p["entry"]["desc_en"],
+            "desc_ar": p["entry"]["desc_ar"],
+            "matched_text": p["matched_text"],
+        }
+        for p in procedure_matches
+    ]
+    drg = group_encounter(
+        principal_code,
+        secondary_codes,
+        procedure_codes=[p["code"] for p in suggested_procedures],
+        age=age,
+        encounter_type=encounter_type,
+    )
     confidence_score = round(sum(c["confidence"] for c in suggested_codes) / len(suggested_codes), 2)
     return {
         "suggested_codes": suggested_codes,
+        "suggested_procedures": suggested_procedures,
         "principal_code": principal_code,
         "secondary_codes": secondary_codes,
         "drg": drg,
@@ -219,6 +278,7 @@ class CodingEngine:
             "engine_version": self.ENGINE_VERSION,
             "source_text": clinical_note,
             "suggested_codes": engine_result["suggested_codes"],
+            "suggested_procedures": engine_result["suggested_procedures"],
             "final_codes": final_codes,
             "status": classification["status"],
             "confidence_score": engine_result["confidence_score"],

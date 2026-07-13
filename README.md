@@ -1,6 +1,6 @@
 # BrainSAIT DRG Suite — Bilingual (AR/EN) Saudi DRG Automation
 
-[![[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Fadil369/brainsait-drg-suite)]](https://deploy.workers.cloudflare.com/?url=${repositoryUrl})
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Fadil369/solventum-drg-suite-lwsb-xgwrw12cfreedylv)
 
 BrainSAIT DRG Suite is an enterprise-grade healthcare automation platform tailored for the Saudi Arabian market. It ingests unstructured, **code-switched Arabic/English** clinical notes, groups encounters with an explainable **APR-DRG / EAPG** methodology, and automates claims submission to the national nphies platform. Built with SOC 2+ compliance in mind, the system supports configurable workflows across three automation phases: Computer-Assisted Coding (CAC), Semi-Autonomous, and Autonomous. The architecture separates a secure Python FastAPI backend (hosted on AWS) from a visually stunning, fully bilingual (RTL-aware) React frontend deployed at the edge via Cloudflare Workers for global performance and intuitive user experience.
 
@@ -116,5 +116,5 @@ pip install -r requirements-dev.txt
 pytest tests/test_bilingual_coding_engine.py -v
 ```
 These tests cover language detection, code-switched term matching, negation/uncertainty handling, specificity deduplication, deterministic (non-random) coding output, APR-DRG SOI/ROM computation, and bilingual CDI nudge generation.
-[![[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Fadil369/brainsait-drg-suite)]](https://deploy.workers.cloudflare.com/?url=${repositoryUrl})
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Fadil369/solventum-drg-suite-lwsb-xgwrw12cfreedylv)
 **Project Status: 100% Complete - Fully Shippable.**
