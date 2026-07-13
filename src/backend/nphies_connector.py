@@ -5,7 +5,39 @@ import json
 import jsonschema
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
-from typing import Dict, Any, Optional
+from typing import Dict, Any, List, Optional, TypedDict
+# --- Bilingual nphies/Etimad Data Mapping (PRD Section 4.0) ---
+# Maps BrainSAIT's internal data constructs to the nphies/Etimad target
+# fields, with bilingual (EN/AR) labels for the Integration Console UI.
+class NphiesFieldMapping(TypedDict):
+    brainsait_concept_en: str
+    brainsait_concept_ar: str
+    nphies_field_en: str
+    nphies_field_ar: str
+    source: str
+NPHIES_BILINGUAL_FIELD_MAP: List[NphiesFieldMapping] = [
+    {
+        "brainsait_concept_en": "Patient Identifiers",
+        "brainsait_concept_ar": "معرفات المريض",
+        "nphies_field_en": "Patient Identifier (National ID, Iqama ID)",
+        "nphies_field_ar": "معرف المريض (الهوية الوطنية، الإقامة)",
+        "source": "nphies User Manual",
+    },
+    {
+        "brainsait_concept_en": "Claim Status",
+        "brainsait_concept_ar": "حالة المطالبة",
+        "nphies_field_en": "status (e.g., FC_3 for approved claim)",
+        "nphies_field_ar": "الحالة (مثل FC_3 للمطالبة المعتمدة)",
+        "source": "nphies/Etimad API Guides",
+    },
+    {
+        "brainsait_concept_en": "Vendor/Provider ID",
+        "brainsait_concept_ar": "معرف المورد/مقدم الخدمة",
+        "nphies_field_en": "CRNumber",
+        "nphies_field_ar": "رقم السجل التجاري (CRNumber)",
+        "source": "Etimad API Guides",
+    },
+]
 # Custom Exceptions for clear error handling
 class NphiesAuthError(Exception):
     """Raised when authentication with the Nphies platform fails."""

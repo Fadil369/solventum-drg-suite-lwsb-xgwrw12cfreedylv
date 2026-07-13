@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Check, X, Lightbulb } from 'lucide-react';
+import { Check, X, Lightbulb, TrendingUp } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import type { Nudge } from '@shared/types';
@@ -14,6 +14,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { motion } from 'framer-motion';
+import { useLanguage } from '@/hooks/use-language';
 const getSeverityVariant = (severity: Nudge['severity']) => {
   switch (severity) {
     case 'critical': return 'destructive';
@@ -25,6 +26,7 @@ const getSeverityVariant = (severity: Nudge['severity']) => {
 export function CDINudgesConsole() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState<string>('active');
+  const { t, language, isRtl } = useLanguage();
   const { data, isLoading, error } = useQuery({
     queryKey: ['nudges'],
     queryFn: () => api<{ items: Nudge[] }>('/api/nudges'),
@@ -32,14 +34,14 @@ export function CDINudgesConsole() {
   const applyNudgeMutation = useMutation({
     mutationFn: (nudgeId: string) => api(`/api/nudges/${nudgeId}/apply`, { method: 'POST' }),
     onSuccess: () => {
-      toast.success('Nudge applied successfully!');
+      toast.success(isRtl ? 'تم تطبيق التنبيه بنجاح!' : 'Nudge applied successfully!');
       queryClient.invalidateQueries({ queryKey: ['nudges'] });
     },
     onError: () => {
-      toast.error('Failed to apply nudge.');
+      toast.error(isRtl ? 'فشل تطبيق التنبيه.' : 'Failed to apply nudge.');
     },
   });
-  if (error) toast.error('Failed to load CDI nudges.');
+  if (error) toast.error(isRtl ? 'فشل تحميل تنبيهات سلامة التوثيق.' : 'Failed to load CDI nudges.');
   const filteredNudges = data?.items.filter(nudge => statusFilter === 'all' || nudge.status === statusFilter) ?? [];
   return (
     <AppLayout>
@@ -49,18 +51,18 @@ export function CDINudgesConsole() {
           <CardHeader>
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div>
-                <CardTitle className="text-2xl font-display">CDI Nudges Console</CardTitle>
-                <CardDescription>Review and action real-time Clinical Documentation Integrity prompts.</CardDescription>
+                <CardTitle className="text-2xl font-display">{t('cdi.title')}</CardTitle>
+                <CardDescription>{t('cdi.description')}</CardDescription>
               </div>
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Filter by status" />
+                  <SelectValue placeholder={t('cdi.filter.all')} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Nudges</SelectItem>
-                  <SelectItem value="active">Active</SelectItem>
-                  <SelectItem value="resolved">Resolved</SelectItem>
-                  <SelectItem value="dismissed">Dismissed</SelectItem>
+                  <SelectItem value="all">{t('cdi.filter.all')}</SelectItem>
+                  <SelectItem value="active">{t('cdi.filter.active')}</SelectItem>
+                  <SelectItem value="resolved">{t('cdi.filter.resolved')}</SelectItem>
+                  <SelectItem value="dismissed">{t('cdi.filter.dismissed')}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -70,11 +72,11 @@ export function CDINudgesConsole() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Severity</TableHead>
-                    <TableHead>Prompt</TableHead>
-                    <TableHead>Encounter</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{t('cdi.severity')}</TableHead>
+                    <TableHead>{t('cdi.prompt')}</TableHead>
+                    <TableHead>{t('cdi.encounter')}</TableHead>
+                    <TableHead>{t('cdi.created')}</TableHead>
+                    <TableHead className="text-end">{t('cdi.actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -85,35 +87,46 @@ export function CDINudgesConsole() {
                         <TableCell><Skeleton className="h-4 w-full shimmer-bg" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-16 shimmer-bg" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-24 shimmer-bg" /></TableCell>
-                        <TableCell className="text-right"><Skeleton className="h-8 w-20 ml-auto shimmer-bg" /></TableCell>
+                        <TableCell className="text-end"><Skeleton className="h-8 w-20 ms-auto shimmer-bg" /></TableCell>
                       </TableRow>
                     ))
                   ) : filteredNudges.length > 0 ? (
-                    filteredNudges.map((nudge) => (
+                    filteredNudges.map((nudge) => {
+                      const prompt = language === 'ar' && nudge.prompt_ar ? nudge.prompt_ar : nudge.prompt;
+                      const soiImpact = language === 'ar' && nudge.soi_impact_ar ? nudge.soi_impact_ar : nudge.soi_impact;
+                      return (
                       <TableRow key={nudge.id} className="hover:bg-muted/50">
                         <TableCell>
                           <motion.div whileHover={{ scale: 1.05 }}>
                             <Badge variant={getSeverityVariant(nudge.severity)} className="bg-gradient-primary/20 text-gradient font-semibold">{nudge.severity}</Badge>
                           </motion.div>
                         </TableCell>
-                        <TableCell className="font-medium max-w-xs sm:max-w-md truncate text-sm sm:text-base">{nudge.prompt}</TableCell>
+                        <TableCell className="font-medium max-w-xs sm:max-w-md text-sm sm:text-base" dir="auto">
+                          <p className="truncate">{prompt}</p>
+                          {soiImpact && (
+                            <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400 mt-0.5">
+                              <TrendingUp className="h-3 w-3 shrink-0" />
+                              <span className="truncate">{soiImpact}</span>
+                            </p>
+                          )}
+                        </TableCell>
                         <TableCell className="text-muted-foreground">{nudge.encounter_id}</TableCell>
                         <TableCell className="text-muted-foreground">{formatDistanceToNow(new Date(nudge.created_at), { addSuffix: true })}</TableCell>
-                        <TableCell className="text-right space-x-1">
-                          <Button variant="ghost" size="icon" className="h-11 w-11 min-h-[44px]" title="Apply Suggestion" onClick={() => applyNudgeMutation.mutate(nudge.id)} disabled={nudge.status !== 'active'}>
+                        <TableCell className="text-end space-x-1 rtl:space-x-reverse">
+                          <Button variant="ghost" size="icon" className="h-11 w-11 min-h-[44px]" title={t('cdi.apply')} onClick={() => applyNudgeMutation.mutate(nudge.id)} disabled={nudge.status !== 'active'}>
                             <Check className="h-4 w-4 text-green-600" />
                           </Button>
-                          <Button variant="ghost" size="icon" className="h-11 w-11 min-h-[44px]" title="Dismiss Nudge" disabled={nudge.status !== 'active'}>
+                          <Button variant="ghost" size="icon" className="h-11 w-11 min-h-[44px]" title={t('cdi.dismiss')} disabled={nudge.status !== 'active'}>
                             <X className="h-4 w-4 text-red-600" />
                           </Button>
                         </TableCell>
                       </TableRow>
-                    ))
+                    );})
                   ) : (
                     <TableRow>
                       <TableCell colSpan={5} className="h-24 text-center">
                         <Lightbulb className="mx-auto h-8 w-8 text-muted-foreground mb-2" />
-                        No nudges found for the selected filter.
+                        {t('cdi.empty')}
                       </TableCell>
                     </TableRow>
                   )}

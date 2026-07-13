@@ -6,7 +6,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { Clock, FileText, Lightbulb, Percent } from 'lucide-react';
+import { Clock, FileText, Lightbulb, Percent, Scale3d } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import type { Claim, CodingJob, Nudge } from '@shared/types';
@@ -14,6 +14,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { motion } from 'framer-motion';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { useLanguage } from '@/hooks/use-language';
 const containerVariants = {
   hidden: { opacity: 0 },
   visible: {
@@ -61,6 +62,7 @@ const getStatusVariant = (status: Claim['status']) => {
 };
 const PIE_COLORS = ['#0E5FFF', '#F38020', '#0F172A'];
 export function Dashboard() {
+  const { t, isRtl } = useLanguage();
   const { data: claimsData, isLoading: isLoadingClaims } = useQuery({
     queryKey: ['claims', { limit: 5 }],
     queryFn: () => api<{ items: Claim[] }>('/api/claims', { params: { limit: 5 } }),
@@ -75,9 +77,9 @@ export function Dashboard() {
   });
   const { data: analyticsData, isLoading: isLoadingAnalytics, error: analyticsError } = useQuery({
     queryKey: ['analytics'],
-    queryFn: () => api<{ accuracy: number; claimStats: { approved: number; rejected: number; totalAmount: number } }>('/api/analytics'),
+    queryFn: () => api<{ accuracy: number; claimStats: { approved: number; rejected: number; totalAmount: number }; caseMixIndex?: number }>('/api/analytics'),
   });
-  if (analyticsError) toast.error('Failed to load analytics data.');
+  if (analyticsError) toast.error(isRtl ? 'فشل تحميل بيانات التحليلات.' : 'Failed to load analytics data.');
   const pendingJobs = jobsData?.items?.filter(j => j.status === 'NEEDS_REVIEW').length ?? 0;
   const activeNudges = nudgesData?.items?.filter(n => n.status === 'active').length ?? 0;
   const claimStatusData = [
@@ -95,36 +97,32 @@ export function Dashboard() {
           animate="visible"
         >
           <motion.div variants={itemVariants}>
-            <StatCard title="Total Claims Value" value={`SAR ${analyticsData?.claimStats.totalAmount.toLocaleString() ?? '0'}`} icon={<FileText className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingAnalytics} linkTo="/claims-manager" />
+            <StatCard title={t('dashboard.totalClaims')} value={`SAR ${analyticsData?.claimStats.totalAmount.toLocaleString() ?? '0'}`} icon={<FileText className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingAnalytics} linkTo="/claims-manager" />
           </motion.div>
           <motion.div variants={itemVariants}>
-            <StatCard title="Avg. Coding Accuracy" value={`${analyticsData?.accuracy ?? 0}%`} icon={<Percent className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingAnalytics}>
-              <motion.div initial={{ width: 0 }} animate={{ width: `${analyticsData?.accuracy ?? 0}%` }} transition={{ type: 'spring', stiffness: 50, damping: 20 }}>
-                <Progress value={analyticsData?.accuracy} className="h-2 mt-2" />
-              </motion.div>
-            </StatCard>
+            <StatCard title={t('dashboard.caseMixIndex')} value={(analyticsData?.caseMixIndex ?? 0).toFixed(2)} icon={<Scale3d className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingAnalytics} />
           </motion.div>
           <motion.div variants={itemVariants}>
-            <StatCard title="Pending Coding Jobs" value={pendingJobs} icon={<Clock className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingJobs} linkTo="/coding-workspace" />
+            <StatCard title={t('dashboard.pendingJobs')} value={pendingJobs} icon={<Clock className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingJobs} linkTo="/coding-workspace" />
           </motion.div>
           <motion.div variants={itemVariants}>
-            <StatCard title="Active CDI Nudges" value={activeNudges} icon={<Lightbulb className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingNudges} linkTo="/cdi-nudges" />
+            <StatCard title={t('dashboard.activeNudges')} value={activeNudges} icon={<Lightbulb className="h-4 w-4 text-muted-foreground" />} isLoading={isLoadingNudges} linkTo="/cdi-nudges" />
           </motion.div>
         </motion.div>
         <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3 mt-8">
           <Card className="lg:col-span-2">
             <CardHeader>
-              <CardTitle>Recent Claims</CardTitle>
-              <CardDescription>A view of the latest claims processed by the system.</CardDescription>
+              <CardTitle>{t('dashboard.recentClaims')}</CardTitle>
+              <CardDescription>{t('dashboard.recentClaimsDesc')}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="overflow-x-auto rounded-lg border scroll-snap-type-x mandatory snap-mandatory">
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Claim #</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Amount</TableHead>
+                      <TableHead>{t('dashboard.claimNumber')}</TableHead>
+                      <TableHead>{t('dashboard.status')}</TableHead>
+                      <TableHead>{t('dashboard.amount')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -145,7 +143,7 @@ export function Dashboard() {
                         </TableRow>
                       ))
                     ) : (
-                      <TableRow><TableCell colSpan={3} className="text-center h-24">No recent claims found.</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={3} className="text-center h-24">{t('dashboard.noRecentClaims')}</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -154,8 +152,8 @@ export function Dashboard() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>Claim Status Overview</CardTitle>
-              <CardDescription>Approved vs. Rejected claims.</CardDescription>
+              <CardTitle>{t('dashboard.claimStatusOverview')}</CardTitle>
+              <CardDescription>{t('dashboard.approvedVsRejected')}</CardDescription>
             </CardHeader>
             <CardContent>
               {isLoadingAnalytics ? (

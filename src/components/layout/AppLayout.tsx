@@ -6,7 +6,9 @@ import { useAuth } from '@/hooks/use-auth';
 import { Button } from '../ui/button';
 import { FilePlus2 } from 'lucide-react';
 import { ThemeToggle } from '../ThemeToggle';
+import { LanguageToggle } from '../LanguageToggle';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { useLanguage } from '@/hooks/use-language';
 type AppLayoutProps = {
   children: React.ReactNode;
 };
@@ -14,6 +16,7 @@ export function AppLayout({ children }: AppLayoutProps): JSX.Element {
   const navigate = useNavigate();
   const user = useAuth(s => s.user);
   const isMobile = useIsMobile();
+  const { t } = useLanguage();
   return (
     <SidebarProvider defaultOpen={!isMobile}>
       <div className="relative min-h-screen w-full">
@@ -26,14 +29,15 @@ export function AppLayout({ children }: AppLayoutProps): JSX.Element {
             <div className="flex-1">
               {/* Optional: Add a search bar or other header content here */}
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 sm:gap-4">
               <span className="text-sm text-muted-foreground hidden sm:inline">
-                Welcome, {user?.username}!
+                {t('nav.welcome')}, {user?.username}!
               </span>
               <Button size="sm" className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white min-h-[44px]" onClick={() => navigate('/')}>
-                <FilePlus2 className="mr-0 sm:mr-2 h-4 w-4" />
-                <span className="hidden sm:inline">Ingest Note</span>
+                <FilePlus2 className="me-0 sm:me-2 h-4 w-4" />
+                <span className="hidden sm:inline">{t('common.ingestNote')}</span>
               </Button>
+              <LanguageToggle />
               <ThemeToggle className="relative top-0 right-0" />
             </div>
           </header>

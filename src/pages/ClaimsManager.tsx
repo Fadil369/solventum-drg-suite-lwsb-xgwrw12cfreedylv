@@ -16,6 +16,7 @@ import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/hooks/use-language';
 const getStatusVariant = (status: Claim['status']) => {
   switch (status) {
     case 'FC_3': return 'default';
@@ -31,6 +32,7 @@ export function ClaimsManager() {
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [isExporting, setIsExporting] = useState(false);
+  const { t, isRtl } = useLanguage();
   const { data, isLoading, error } = useQuery({
     queryKey: ['claims', { limit: 20 }],
     queryFn: () => api<{ items: Claim[] }>('/api/claims', { params: { limit: 20 } }),
@@ -41,7 +43,7 @@ export function ClaimsManager() {
     }, 300);
     return () => clearTimeout(handler);
   }, [searchTerm]);
-  if (error) toast.error('Failed to load claims data.');
+  if (error) toast.error(isRtl ? 'فشل تحميل بيانات المطالبات.' : 'Failed to load claims data.');
   const filteredClaims = useMemo(() => {
     if (!data?.items) return [];
     return data.items.filter(claim => {
@@ -61,7 +63,7 @@ export function ClaimsManager() {
       a.download = 'brainsait-claims_export.json';
       a.click();
       URL.revokeObjectURL(url);
-      toast.success('Claims exported successfully.');
+      toast.success(isRtl ? 'تم تصدير المطالبات بنجاح.' : 'Claims exported successfully.');
       setIsExporting(false);
     }, 500);
   };
@@ -73,32 +75,32 @@ export function ClaimsManager() {
           <CardHeader>
             <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
               <div>
-                <CardTitle className="text-2xl font-display">Claims Manager</CardTitle>
-                <CardDescription>Search, filter, and manage all claims.</CardDescription>
+                <CardTitle className="text-2xl font-display">{t('claims.title')}</CardTitle>
+                <CardDescription>{t('claims.description')}</CardDescription>
               </div>
               <Button onClick={handleExport} variant="outline" disabled={isExporting} className={cn("min-h-[44px]", isExporting && "shimmer-bg")}>
-                {isExporting ? <RotateCw className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                {isExporting ? 'Exporting...' : 'Export JSON'}
+                {isExporting ? <RotateCw className="me-2 h-4 w-4 animate-spin" /> : <Download className="me-2 h-4 w-4" />}
+                {isExporting ? t('common.loading') : 'Export JSON'}
               </Button>
             </div>
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4 pt-4">
               <Input
-                placeholder="Filter by Claim #"
+                placeholder={isRtl ? 'تصفية برقم المطالبة' : 'Filter by Claim #'}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="w-full sm:max-w-sm focus:ring-2 focus:ring-blue-500 shadow-glow"
               />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-full sm:w-[180px]">
-                  <SelectValue placeholder="Filter by status" />
+                  <SelectValue placeholder={isRtl ? 'تصفية بالحالة' : 'Filter by status'} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">All Statuses</SelectItem>
-                  <SelectItem value="DRAFT">Draft</SelectItem>
-                  <SelectItem value="SENT">Sent</SelectItem>
-                  <SelectItem value="FC_3">Approved (FC_3)</SelectItem>
-                  <SelectItem value="REJECTED">Rejected</SelectItem>
-                  <SelectItem value="NEEDS_REVIEW">Needs Review</SelectItem>
+                  <SelectItem value="all">{isRtl ? 'كل الحالات' : 'All Statuses'}</SelectItem>
+                  <SelectItem value="DRAFT">{isRtl ? 'مسودة' : 'Draft'}</SelectItem>
+                  <SelectItem value="SENT">{isRtl ? 'مُرسلة' : 'Sent'}</SelectItem>
+                  <SelectItem value="FC_3">{isRtl ? 'معتمدة (FC_3)' : 'Approved (FC_3)'}</SelectItem>
+                  <SelectItem value="REJECTED">{isRtl ? 'مرفوضة' : 'Rejected'}</SelectItem>
+                  <SelectItem value="NEEDS_REVIEW">{isRtl ? 'تحتاج مراجعة' : 'Needs Review'}</SelectItem>
                 </SelectContent>
               </Select>
             </div>
@@ -108,11 +110,11 @@ export function ClaimsManager() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Claim #</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Amount</TableHead>
-                    <TableHead>Submitted At</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
+                    <TableHead>{t('dashboard.claimNumber')}</TableHead>
+                    <TableHead>{t('dashboard.status')}</TableHead>
+                    <TableHead>{t('dashboard.amount')}</TableHead>
+                    <TableHead>{isRtl ? 'تاريخ الإرسال' : 'Submitted At'}</TableHead>
+                    <TableHead className="text-end">{t('cdi.actions')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -123,7 +125,7 @@ export function ClaimsManager() {
                         <TableCell><Skeleton className="h-6 w-24 shimmer-bg" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-20 shimmer-bg" /></TableCell>
                         <TableCell><Skeleton className="h-4 w-28 shimmer-bg" /></TableCell>
-                        <TableCell className="text-right"><Skeleton className="h-8 w-24 ml-auto shimmer-bg" /></TableCell>
+                        <TableCell className="text-end"><Skeleton className="h-8 w-24 ms-auto shimmer-bg" /></TableCell>
                       </TableRow>
                     ))
                   ) : filteredClaims.length > 0 ? (
@@ -139,7 +141,7 @@ export function ClaimsManager() {
                         <TableCell><Badge variant={getStatusVariant(claim.status)} className="bg-gradient-primary/20 text-primary">{claim.status}</Badge></TableCell>
                         <TableCell>SAR {claim.amount.toLocaleString()}</TableCell>
                         <TableCell>{claim.submitted_at ? format(new Date(claim.submitted_at), 'PPp') : 'N/A'}</TableCell>
-                        <TableCell className="text-right space-x-2">
+                        <TableCell className="text-end space-x-2 rtl:space-x-reverse">
                           <Button variant="ghost" size="icon" className="h-[44px] w-[44px]"><Eye className="h-4 w-4" /></Button>
                           <Button variant="ghost" size="icon" className="h-[44px] w-[44px]"><RotateCw className="h-4 w-4" /></Button>
                         </TableCell>
@@ -148,7 +150,7 @@ export function ClaimsManager() {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={5} className="h-24 text-center">
-                        No claims found.
+                        {isRtl ? 'لا توجد مطالبات.' : 'No claims found.'}
                       </TableCell>
                     </TableRow>
                   )}

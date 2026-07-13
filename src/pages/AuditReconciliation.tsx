@@ -14,6 +14,7 @@ import { format, formatDistanceToNow } from 'date-fns';
 import { motion } from 'framer-motion';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
+import { useLanguage } from '@/hooks/use-language';
 type SortKey = 'amount' | 'received_at';
 type SortDirection = 'asc' | 'desc';
 export function AuditReconciliation() {
@@ -22,6 +23,7 @@ export function AuditReconciliation() {
   const [progress, setProgress] = useState(0);
   const [sortKey, setSortKey] = useState<SortKey>('received_at');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const { t, isRtl } = useLanguage();
   const { data: paymentsData, isLoading: isLoadingPayments } = useQuery({
     queryKey: ['payments'],
     queryFn: () => api<{ items: Payment[] }>('/api/payments'),
@@ -33,10 +35,10 @@ export function AuditReconciliation() {
   const reconcileMutation = useMutation({
     mutationFn: () => api('/api/reconcile-batch', { method: 'POST' }),
     onSuccess: () => {
-      toast.success('Batch reconciliation completed!');
+      toast.success(isRtl ? 'تمت مطابقة الدفعة بنجاح!' : 'Batch reconciliation completed!');
       queryClient.invalidateQueries({ queryKey: ['payments'] });
     },
-    onError: () => toast.error('Batch reconciliation failed.'),
+    onError: () => toast.error(isRtl ? 'فشلت مطابقة الدفعة.' : 'Batch reconciliation failed.'),
     onSettled: () => setIsReconciling(false),
   });
   const handleBatchReconcile = () => {
@@ -80,13 +82,13 @@ export function AuditReconciliation() {
             <CardHeader>
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                 <div>
-                  <CardTitle>Payments Reconciliation</CardTitle>
-                  <CardDescription>Match incoming payments to claims.</CardDescription>
+                  <CardTitle>{isRtl ? 'مطابقة المدفوعات' : 'Payments Reconciliation'}</CardTitle>
+                  <CardDescription>{isRtl ? 'مطابقة المدفوعات الواردة مع المطالبات.' : 'Match incoming payments to claims.'}</CardDescription>
                 </div>
                 <motion.div whileTap={{ scale: 0.95 }}>
                   <Button onClick={handleBatchReconcile} disabled={isReconciling} className="min-h-[44px] active:scale-95">
-                    <Bot className="mr-2 h-4 w-4" />
-                    {isReconciling ? 'Reconciling...' : 'Run Batch'}
+                    <Bot className="me-2 h-4 w-4" />
+                    {isReconciling ? (isRtl ? 'جارٍ المطابقة...' : 'Reconciling...') : (isRtl ? 'تشغيل الدفعة' : 'Run Batch')}
                   </Button>
                 </motion.div>
               </div>
@@ -101,14 +103,14 @@ export function AuditReconciliation() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Claim ID</TableHead>
+                      <TableHead>{isRtl ? 'رقم المطالبة' : 'Claim ID'}</TableHead>
                       <TableHead className="cursor-pointer" onClick={() => handleSort('amount')}>
-                        <div className="flex items-center">Amount <ArrowUpDown className={`ml-2 h-4 w-4 transition-transform ${sortKey === 'amount' && sortDirection === 'desc' ? 'rotate-180' : ''}`} /></div>
+                        <div className="flex items-center">{t('dashboard.amount')} <ArrowUpDown className={`ms-2 h-4 w-4 transition-transform ${sortKey === 'amount' && sortDirection === 'desc' ? 'rotate-180' : ''}`} /></div>
                       </TableHead>
                       <TableHead className="cursor-pointer" onClick={() => handleSort('received_at')}>
-                        <div className="flex items-center">Received <ArrowUpDown className={`ml-2 h-4 w-4 transition-transform ${sortKey === 'received_at' && sortDirection === 'desc' ? 'rotate-180' : ''}`} /></div>
+                        <div className="flex items-center">{isRtl ? 'تاريخ الاستلام' : 'Received'} <ArrowUpDown className={`ms-2 h-4 w-4 transition-transform ${sortKey === 'received_at' && sortDirection === 'desc' ? 'rotate-180' : ''}`} /></div>
                       </TableHead>
-                      <TableHead>Status</TableHead>
+                      <TableHead>{t('dashboard.status')}</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -128,8 +130,8 @@ export function AuditReconciliation() {
                         <TableCell>{format(new Date(p.received_at), 'PP')}</TableCell>
                         <TableCell>
                           <Badge variant={p.reconciled ? 'default' : 'secondary'}>
-                            {p.reconciled ? <CheckCircle className="mr-1 h-3 w-3" /> : <Clock className="mr-1 h-3 w-3" />}
-                            {p.reconciled ? 'Reconciled' : 'Pending'}
+                            {p.reconciled ? <CheckCircle className="me-1 h-3 w-3" /> : <Clock className="me-1 h-3 w-3" />}
+                            {p.reconciled ? (isRtl ? 'تمت المطابقة' : 'Reconciled') : (isRtl ? 'قيد الانتظار' : 'Pending')}
                           </Badge>
                         </TableCell>
                       </TableRow>
@@ -141,8 +143,8 @@ export function AuditReconciliation() {
           </Card>
           <Card>
             <CardHeader>
-              <CardTitle>System Audit Logs</CardTitle>
-              <CardDescription>A trail of system events for SOC2 compliance.</CardDescription>
+              <CardTitle>{t('audit.title')}</CardTitle>
+              <CardDescription>{t('audit.description')}</CardDescription>
             </CardHeader>
             <CardContent>
               <div className="space-y-4 overflow-x-auto">
@@ -151,9 +153,9 @@ export function AuditReconciliation() {
                 ) : auditData?.items.map(log => (
                   <div key={log.id} className="flex items-center">
                     <FileArchive className="h-5 w-5 text-muted-foreground" />
-                    <div className="ml-4 flex-1">
+                    <div className="ms-4 flex-1">
                       <p className="text-sm font-medium">{log.action}</p>
-                      <p className="text-xs text-muted-foreground">by {log.actor} on {log.object_type}:{log.object_id}</p>
+                      <p className="text-xs text-muted-foreground">{isRtl ? `بواسطة ${log.actor} على ${log.object_type}:${log.object_id}` : `by ${log.actor} on ${log.object_type}:${log.object_id}`}</p>
                     </div>
                     <div className="text-xs text-muted-foreground">{formatDistanceToNow(new Date(log.occurred_at), { addSuffix: true })}</div>
                   </div>

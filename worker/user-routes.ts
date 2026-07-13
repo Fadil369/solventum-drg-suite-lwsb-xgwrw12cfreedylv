@@ -2,8 +2,17 @@ import { Hono } from "hono";
 import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
-import type { CodingJob, SuggestedCode, Analytics } from "@shared/types";
+import type { CodingJob, Analytics } from "@shared/types";
+import { runCodingEngine, classifyAutomationPhase } from "@shared/coding-engine";
+import { generateCdiNudges } from "@shared/cdi-rules";
+import { computeCaseMixIndex } from "@shared/drg-grouper";
+import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
+  // GET the bilingual nphies/Etimad field mapping table (PRD Section 4.0)
+  app.get('/api/nphies-field-map', async (c) => {
+    c.header('Cache-Control', 'public, max-age=3600');
+    return ok(c, NPHIES_BILINGUAL_FIELD_MAP);
+  });
   // --- SEEDING HELPER ---
   const ensureAllSeeds = async (env: Env) => {
     await Promise.all([
@@ -73,88 +82,59 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const page = await CodingJobEntity.list(c.env, cursor, limit);
     return ok(c, page);
   });
-  // POST Ingest Note (enhanced mock coding engine)
+  // POST Ingest Note (bilingual AR/EN coding engine + APR-DRG grouper)
   app.post('/api/ingest-note', async (c) => {
     const jobId = crypto.randomUUID();
     try {
       await ensureAllSeeds(c.env);
       const body = await c.req.json();
       const clinical_note: string = body?.clinical_note;
-      const use_real_nlp: boolean = body?.real_nlp === true;
       const visit_complexity: string = body?.visit_complexity || 'standard';
+      const age: number | undefined = typeof body?.age === 'number' ? body.age : undefined;
+      const encounter_type: 'INPATIENT' | 'OUTPATIENT' | 'ED' | undefined = body?.encounter_type;
       if (!isStr(clinical_note)) {
         await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'note.ingestion_failed', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
         return bad(c, 'clinical_note is required');
       }
-      const TERM_MAP = [
-        { synonyms: ['pneumonia', 'pneumonitis', 'سعال شديد'], code: 'J18.9', desc: 'Pneumonia, unspecified organism', confidence: 0.85 },
-        { synonyms: ['myocardial infarction', 'mi', 'heart attack', 'myocardial infarct'], code: 'I21.9', desc: 'Acute MI, unspecified', confidence: 0.99 },
-        { synonyms: ['appendicitis', 'appendix pain', 'appendix inflammation', 'ألم الزائدة'], code: 'K37', desc: 'Unspecified appendicitis', confidence: 0.95 },
-        { synonyms: ['uti', 'urinary tract infection'], code: 'N39.0', desc: 'Urinary tract infection, site not specified', confidence: 0.80 },
-        { synonyms: ['left leg fracture', 'left tibia fracture'], code: 'S82.202A', desc: 'Unspecified fracture of shaft of left tibia, initial encounter', confidence: 0.88 },
-        { synonyms: ['right leg fracture', 'right tibia fracture'], code: 'S82.201A', desc: 'Unspecified fracture of shaft of right tibia, initial encounter', confidence: 0.88 },
-        { synonyms: ['fracture', 'broken bone', 'كسر'], code: 'S82.90XA', desc: 'Unspecified fracture of lower leg, check laterality', confidence: 0.75 },
-        { synonyms: ['diabetes', 'sukari', 'diabetic'], code: 'E11.9', desc: 'Type 2 diabetes mellitus without complications', confidence: 0.92 },
-        { synonyms: ['hypertension', 'high blood pressure', 'ضغط دم مرتفع'], code: 'I10', desc: 'Essential (primary) hypertension', confidence: 0.98 },
-        { synonyms: ['cough'], code: 'R05', desc: 'Cough', confidence: 0.95 },
-      ];
-      let suggested_codes: SuggestedCode[] = [];
-      let auditAction = 'note.ingested.keyword_fallback';
-      if (use_real_nlp) {
-        // Simulate a call to an external NLP service like OpenAI
-        await new Promise(res => setTimeout(res, 500)); // Mock network latency
-        auditAction = 'note.ingested.nlp_integrated';
-      }
-      const seenCodes = new Set<string>();
-      for (const entry of TERM_MAP) {
-        for (const syn of entry.synonyms) {
-          const re = new RegExp(`\\b${syn.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'i');
-          if (re.test(clinical_note)) {
-            if (!seenCodes.has(entry.code)) {
-              const confidenceWithVariance = Math.min(0.99, entry.confidence + (Math.random() * 0.10 - 0.05));
-              suggested_codes.push({ code: entry.code, desc: entry.desc, confidence: parseFloat(confidenceWithVariance.toFixed(2)) });
-              seenCodes.add(entry.code);
-            }
-            break;
-          }
-        }
-      }
-      if (suggested_codes.length === 0) {
-        suggested_codes.push({ code: 'Z00.00', desc: 'General medical examination, unspecified', confidence: 0.50 });
-      }
-      const confidence_score = parseFloat((suggested_codes.reduce((acc, code) => acc + code.confidence, 0) / suggested_codes.length).toFixed(2));
-      let phase: CodingJob['phase'] = 'CAC';
-      let status: CodingJob['status'] = 'NEEDS_REVIEW';
-      if (confidence_score > 0.98 && visit_complexity === 'low-complexity outpatient') {
-        phase = 'AUTONOMOUS';
-        status = 'SENT_TO_NPHIES';
-      } else if (confidence_score > 0.90) {
-        phase = 'SEMI_AUTONOMOUS';
-        status = 'AUTO_DROP';
-      }
+      const engineResult = runCodingEngine(clinical_note, { age, encounterType: encounter_type });
+      const { phase, status } = classifyAutomationPhase(engineResult.confidence_score, visit_complexity);
       const encounters = await EncounterEntity.list(c.env, null, 1);
       const encounter_id = encounters.items.length > 0 ? encounters.items[0].id : 'e_mock_fallback';
       const newJob: CodingJob = {
         id: jobId,
         encounter_id,
-        suggested_codes,
+        suggested_codes: engineResult.suggested_codes,
         status,
-        confidence_score,
+        confidence_score: engineResult.confidence_score,
         phase,
         created_at: new Date().toISOString(),
         source_text: clinical_note,
+        principal_code: engineResult.principal_code,
+        secondary_codes: engineResult.secondary_codes,
+        drg: engineResult.drg,
+        detected_language: engineResult.detected_language,
       };
       await CodingJobEntity.create(c.env, newJob);
-      const accuracy = Math.round(confidence_score * 100);
       const newAnalytics: Analytics = {
         id: crypto.randomUUID(),
         job_id: newJob.id,
-        accuracy: accuracy,
+        accuracy: Math.round(engineResult.confidence_score * 100),
         phase: newJob.phase,
+        relative_weight: engineResult.drg.relative_weight,
+        soi: engineResult.drg.soi,
+        rom: engineResult.drg.rom,
         created_at: new Date().toISOString(),
       };
       await AnalyticsEntity.create(c.env, newAnalytics);
-      await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: auditAction, object_type: 'coding_job', object_id: newJob.id, occurred_at: new Date().toISOString() });
+      // Generate bilingual CDI nudges for this encounter from the same lexicon pass.
+      const nudges = generateCdiNudges(clinical_note, encounter_id, { age, encounterType: encounter_type });
+      for (const nudge of nudges) {
+        const existing = new NudgeEntity(c.env, nudge.id);
+        if (!(await existing.exists())) {
+          await NudgeEntity.create(c.env, nudge);
+        }
+      }
+      await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: `note.ingested.${engineResult.detected_language}`, object_type: 'coding_job', object_id: newJob.id, occurred_at: new Date().toISOString() });
       if (status === 'SENT_TO_NPHIES') {
         await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'claim.submitted_to_nphies', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
       }
@@ -235,10 +215,21 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       const approved = claimsItems.filter(cl => cl.status === 'FC_3').length;
       const rejected = claimsItems.filter(cl => cl.status === 'REJECTED').length;
       const totalAmount = claimsItems.reduce((sum, cl) => sum + cl.amount, 0);
+      const weighted = analyticsItems.filter(a => typeof a.relative_weight === 'number') as (Analytics & { relative_weight: number })[];
+      const caseMixIndex = computeCaseMixIndex(weighted);
+      const soiDistribution: Record<string, number> = {};
+      for (const a of analyticsItems) {
+        if (typeof a.soi === 'number') {
+          const key = String(a.soi);
+          soiDistribution[key] = (soiDistribution[key] ?? 0) + 1;
+        }
+      }
       await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'analytics.queried', object_type: 'system', object_id: 'dashboard', occurred_at: new Date().toISOString() });
       return ok(c, {
         accuracy: Math.round(avgAccuracy),
-        claimStats: { approved, rejected, totalAmount }
+        claimStats: { approved, rejected, totalAmount },
+        caseMixIndex,
+        soiDistribution,
       });
     } catch (error) {
       console.error("Analytics endpoint error:", error);

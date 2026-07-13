@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { BotMessageSquare, FileText, Zap, ShieldCheck, ArrowRight, Database, Settings, Scale } from 'lucide-react';
+import { Zap, ShieldCheck, ArrowRight, Database, Scale, Stethoscope, Lightbulb } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import { LanguageToggle } from '@/components/LanguageToggle';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import { motion } from 'framer-motion';
 import type { CodingJob } from '@shared/types';
 import { cn } from '@/lib/utils';
+import { useLanguage } from '@/hooks/use-language';
 const FeatureCard = ({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) => (
   <Card className="text-center bg-card/50 backdrop-blur-sm floating-card">
     <CardHeader>
@@ -29,9 +31,10 @@ export function HomePage() {
   const [noteText, setNoteText] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const navigate = useNavigate();
+  const { t, isRtl } = useLanguage();
   const handleAnalyze = async () => {
     if (!noteText.trim()) {
-      toast.error('Please paste a clinical note to analyze.');
+      toast.error(isRtl ? 'يرجى لصق ملاحظة سريرية للتحليل.' : 'Please paste a clinical note to analyze.');
       return;
     }
     setIsAnalyzing(true);
@@ -40,13 +43,13 @@ export function HomePage() {
         method: 'POST',
         body: JSON.stringify({ clinical_note: noteText }),
       });
-      toast.success("Note ingested successfully!", {
-        description: "Redirecting to the Coding Workspace to see the results."
+      toast.success(isRtl ? 'تم إدخال الملاحظة بنجاح!' : 'Note ingested successfully!', {
+        description: isRtl ? 'يتم تحويلك إلى مساحة الترميز لعرض النتائج.' : 'Redirecting to the Coding Workspace to see the results.',
       });
       navigate('/coding-workspace', { state: { codingJob: response } });
     } catch (error) {
-      toast.error("Failed to ingest note.", {
-        description: error instanceof Error ? error.message : "An unknown error occurred."
+      toast.error(isRtl ? 'فشل إدخال الملاحظة.' : 'Failed to ingest note.', {
+        description: error instanceof Error ? error.message : (isRtl ? 'حدث خطأ غير معروف.' : 'An unknown error occurred.'),
       });
     } finally {
       setIsAnalyzing(false);
@@ -55,15 +58,18 @@ export function HomePage() {
   };
   return (
     <div className="min-h-screen w-full bg-background text-foreground relative overflow-x-hidden scroll-snap">
-      <ThemeToggle className="fixed top-4 right-4 z-50" />
-      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center absolute top-0 left-0 right-0 z-40">
+      <div className="fixed top-4 end-4 z-50 flex items-center gap-1">
+        <LanguageToggle />
+        <ThemeToggle className="relative top-0 right-0" />
+      </div>
+      <header className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center absolute top-0 start-0 end-0 z-40">
         <div className="flex items-center gap-2">
             <div className="h-8 w-8 rounded-lg bg-gradient-primary" />
-            <span className="text-lg font-bold font-display">BrainSAIT</span>
+            <span className="text-lg font-bold font-display">{t('appName')}</span>
         </div>
         <nav className="hidden md:flex items-center gap-2">
-            <Button variant="ghost" asChild><Link to="/dashboard">Dashboard</Link></Button>
-            <Button variant="ghost" asChild><Link to="/claims-manager">Claims</Link></Button>
+            <Button variant="ghost" asChild><Link to="/dashboard">{t('nav.dashboard')}</Link></Button>
+            <Button variant="ghost" asChild><Link to="/claims-manager">{t('nav.claimsManager')}</Link></Button>
         </nav>
       </header>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -78,13 +84,13 @@ export function HomePage() {
               className="space-y-6"
             >
               <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-display font-bold text-balance leading-tight bg-clip-text text-transparent bg-gradient-primary">
-                BrainSAIT DRG Suite
+                {t('appName')}
               </h1>
               <p className="text-xl md:text-2xl font-display text-foreground/90">
-                Automated DRG & ICD Coding for Saudi Healthcare
+                {t('home.heroSubtitle')}
               </p>
               <p className="max-w-3xl mx-auto text-lg text-muted-foreground text-pretty">
-                Leverage our SOC2+ compliant AI to streamline clinical coding, automate nphies claim submissions, and enhance revenue cycle integrity with real-time CDI nudges.
+                {t('home.heroDescription')}
               </p>
               <div className="flex flex-col sm:flex-row justify-center gap-4 sm:gap-6">
                 <Button
@@ -92,57 +98,58 @@ export function HomePage() {
                   onClick={() => setIsModalOpen(true)}
                   className="bg-gradient-primary text-white px-8 py-6 text-lg font-semibold shadow-lg hover:shadow-xl hover:scale-105 hover:-translate-y-0.5 transition-all duration-200 min-h-[44px] active:scale-95"
                 >
-                  Ingest Note & Start Demo
-                  <ArrowRight className="ml-2 h-5 w-5" />
+                  {t('home.ctaIngest')}
+                  <ArrowRight className="ms-2 h-5 w-5 rtl-flip" />
                 </Button>
                 <Button size="lg" variant="outline" asChild className="px-8 py-6 text-lg font-semibold hover:scale-105 transition-transform duration-200 min-h-[44px]">
-                  <Link to="/dashboard">View Dashboard</Link>
+                  <Link to="/dashboard">{t('home.ctaDashboard')}</Link>
                 </Button>
               </div>
             </motion.div>
           </section>
           <section className="py-16 md:py-24 lg:py-32 scroll-snap-align-start snap-mandatory">
             <div className="text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-bold font-display">A Complete Revenue Cycle Platform</h2>
+              <h2 className="text-3xl md:text-4xl font-bold font-display">{t('home.sectionTitle')}</h2>
               <p className="mt-4 max-w-2xl mx-auto text-muted-foreground">
-                From clinical documentation to final payment reconciliation, all in one place.
+                {t('home.sectionSubtitle')}
               </p>
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8 lg:gap-12">
-              <FeatureCard icon={<Zap className="w-6 h-6" />} title="AI-Powered Coding" description="Automate ICD/DRG assignment with our three-phase engine: CAC, Semi-Autonomous, and Fully Autonomous." />
-              <FeatureCard icon={<ArrowRight className="w-6 h-6" />} title="CDI 'Engage One' Nudges" description="Proactively prompt clinicians for greater specificity at the point of documentation, eliminating retrospective queries." />
-              <FeatureCard icon={<ShieldCheck className="w-6 h-6" />} title="nphies Integration" description="Seamlessly submit claims, check statuses, and manage pre-authorizations with our secure, compliant connector." />
-              <FeatureCard icon={<Database className="w-6 h-6" />} title="Claims Management" description="A centralized console to track, filter, and manage the entire lifecycle of your claims." />
-              <FeatureCard icon={<Scale className="w-6 h-6" />} title="Audit & Reconciliation" description="Streamline payment posting and reconciliation with robust audit trails for SOC2 compliance." />
-              <FeatureCard icon={<Settings className="w-6 h-6" />} title="SOC2+ Architecture" description="Built on a secure AWS backend with strict data controls, encryption, and monitoring." />
+              <FeatureCard icon={<Zap className="w-6 h-6" />} title={t('home.feature.coding.title')} description={t('home.feature.coding.desc')} />
+              <FeatureCard icon={<Stethoscope className="w-6 h-6" />} title={t('home.feature.drg.title')} description={t('home.feature.drg.desc')} />
+              <FeatureCard icon={<Lightbulb className="w-6 h-6" />} title={t('home.feature.cdi.title')} description={t('home.feature.cdi.desc')} />
+              <FeatureCard icon={<ShieldCheck className="w-6 h-6" />} title={t('home.feature.nphies.title')} description={t('home.feature.nphies.desc')} />
+              <FeatureCard icon={<Database className="w-6 h-6" />} title={t('home.feature.claims.title')} description={t('home.feature.claims.desc')} />
+              <FeatureCard icon={<Scale className="w-6 h-6" />} title={t('home.feature.audit.title')} description={t('home.feature.audit.desc')} />
             </div>
           </section>
         </div>
       </main>
       <footer className="text-center py-8 border-t">
-        <p className="text-muted-foreground">Built with ❤️ at Cloudflare</p>
+        <p className="text-muted-foreground">{t('home.footer')}</p>
       </footer>
       <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
         <DialogContent className="sm:max-w-[625px]">
           <DialogHeader>
-            <DialogTitle className="text-2xl font-display">Ingest a Clinical Note</DialogTitle>
+            <DialogTitle className="text-2xl font-display">{t('home.modal.title')}</DialogTitle>
             <DialogDescription>
-              Paste an unstructured clinical note below. The system will create a coding job and you'll be redirected to the Coding Workspace.
+              {t('home.modal.description')}
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
             <Textarea
-              placeholder="e.g., Patient presents with fever and cough. Chest X-ray confirms pneumonia..."
+              placeholder={t('home.modal.placeholder')}
               className={cn("min-h-[200px] text-base", isAnalyzing && "shimmer-bg")}
               value={noteText}
               onChange={(e) => setNoteText(e.target.value)}
               disabled={isAnalyzing}
+              dir="auto"
             />
           </div>
           <DialogFooter>
-            <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isAnalyzing} className="min-h-[44px]">Cancel</Button>
+            <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isAnalyzing} className="min-h-[44px]">{t('common.cancel')}</Button>
             <Button type="submit" onClick={handleAnalyze} className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white min-h-[44px] active:scale-95" disabled={isAnalyzing}>
-              {isAnalyzing ? 'Analyzing...' : 'Analyze Note'}
+              {isAnalyzing ? t('home.modal.analyzing') : t('home.modal.analyze')}
             </Button>
           </DialogFooter>
         </DialogContent>

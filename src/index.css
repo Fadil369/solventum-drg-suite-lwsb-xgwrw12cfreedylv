@@ -88,6 +88,18 @@
     touch-action: manipulation;
     -webkit-overflow-scrolling: touch;
   }
+  /*
+   * RTL support: the language toggle sets dir="rtl" on <html>. Tailwind's
+   * logical-property utilities (ms-*, me-*, ps-*, pe-*, text-start, text-end)
+   * already mirror automatically via CSS, so most of the app "just works".
+   * These rules cover the remaining physical-property spots and Arabic type.
+   */
+  html[dir='rtl'] body {
+    font-family: 'IBM Plex Sans Arabic', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  html[dir='rtl'] .rtl-flip {
+    transform: scaleX(-1);
+  }
 }
 @layer components {
   /* Button System */

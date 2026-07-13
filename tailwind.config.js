@@ -13,6 +13,13 @@ export default {
   				'Roboto',
   				'sans-serif'
   			],
+  			arabic: [
+  				'IBM Plex Sans Arabic',
+  				'Inter',
+  				'-apple-system',
+  				'Segoe UI',
+  				'sans-serif'
+  			],
   			display: [
   				'Cal Sans',
   				'Inter',
