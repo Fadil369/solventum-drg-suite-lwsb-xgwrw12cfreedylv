@@ -9,7 +9,7 @@
  * diagnosis — using the same APR-DRG grouper that will ultimately code
  * the encounter.
  */
-import { matchClinicalText, matchProcedures, containsAny, stripArabicDiacritics } from './coding-engine';
+import { matchClinicalText, matchProcedures, containsAny, stripArabicDiacritics, electPrincipal } from './coding-engine';
 import { groupEncounter } from './drg-grouper';
 import type { Nudge } from './types';
 export interface CdiOptions {
@@ -19,8 +19,12 @@ export interface CdiOptions {
 export function generateCdiNudges(text: string, encounterId: string, options: CdiOptions = {}): Nudge[] {
   const matches = matchClinicalText(text);
   if (matches.length === 0) return [];
-  const principalCode = matches[0].entry.code;
-  const secondaryCodes = matches.slice(1).map((m) => m.entry.code);
+  // Use the same acuity-weighted ranking as the main coding engine (not raw
+  // lexicon/insertion order) so the SOI-impact baseline is anchored on the
+  // actual principal diagnosis for multi-diagnosis notes.
+  const ranked = electPrincipal(matches);
+  const principalCode = ranked[0].entry.code;
+  const secondaryCodes = ranked.slice(1).map((m) => m.entry.code);
   const procedureCodes = matchProcedures(text).map((p) => p.entry.code);
   const baseline = groupEncounter({
     principalCode,

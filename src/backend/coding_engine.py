@@ -163,7 +163,11 @@ def match_procedures(raw_text: str) -> List[Dict[str, Any]]:
     return list(matches.values())
 
 
-def _elect_principal(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def elect_principal(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Elects the clinically dominant diagnosis (weighted by acuity, not just
+    confidence) as principal. Public so any caller that needs a
+    principal/secondary split (e.g. cdi_api.py) uses the exact same ranking
+    as the main engine, rather than relying on the lexicon's insertion order."""
     def score(m: Dict[str, Any]) -> float:
         e = m["entry"]
         return m["confidence"] * (1 + e["soi_weight"] + e["rom_weight"])
@@ -186,7 +190,7 @@ def run_coding_engine(text: str, age: Optional[float] = None, encounter_type: st
         principal_code = "Z00.00"
         secondary_codes: List[str] = []
     else:
-        ranked = _elect_principal(matches)
+        ranked = elect_principal(matches)
         principal_code = ranked[0]["entry"]["code"]
         secondary_codes = [r["entry"]["code"] for r in ranked[1:]]
         suggested_codes = []

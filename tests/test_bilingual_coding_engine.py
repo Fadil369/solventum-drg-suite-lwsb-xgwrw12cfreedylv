@@ -9,6 +9,7 @@ from src.backend.coding_engine import (
     classify_automation_phase,
     contains_any,
     detect_language,
+    elect_principal,
     match_clinical_text,
     match_procedures,
     run_coding_engine,
@@ -401,3 +402,56 @@ def test_coding_engine_run_coding_job_surfaces_suggested_procedures():
     )
     assert any(p["code"] == "PR-APPY" for p in result["suggested_procedures"])
     assert result["drg"]["partition"] == "Surgical"
+
+
+# --- CDI principal selection must match the coding engine's acuity ranking
+# (regression test for a reviewer-flagged bug: get_cdi_nudges/generateCdiNudges
+# used to take the first lexicon/insertion-order match as principal instead of
+# the acuity-weighted election used everywhere else, which could anchor the
+# SOI-impact baseline on the wrong diagnosis for multi-diagnosis notes). ---
+def test_cdi_nudge_baseline_uses_elected_principal_not_first_match():
+    # Pneumonia (J18.9) appears earlier than myocardial infarction (I21.9) in
+    # the lexicon's insertion order, but MI is the higher-acuity diagnosis
+    # (soi_weight=3, rom_weight=3 vs. pneumonia's 2/2) and must be elected
+    # principal — this is exactly the scenario the reviewer flagged. The
+    # real-world stakes: principal selection drives which DRG *family* (and
+    # therefore which reimbursement weight) the encounter groups into.
+    note = "Patient has pneumonia and myocardial infarction."
+    matches = match_clinical_text(note)
+    assert [m["entry"]["code"] for m in matches] == ["J18.9", "I21.9"]  # raw/insertion order
+    ranked = elect_principal(matches)
+    assert ranked[0]["entry"]["code"] == "I21.9"  # elected principal is the higher-acuity MI
+    correct_baseline = group_encounter("I21.9", ["J18.9"], encounter_type="INPATIENT")
+    buggy_baseline = group_encounter("J18.9", ["I21.9"], encounter_type="INPATIENT")  # what matches[0]-as-principal would give
+    assert correct_baseline["code"] == "190"  # Acute Myocardial Infarction family
+    assert buggy_baseline["code"] == "194"  # wrong family if pneumonia were mistakenly used as principal
+    nudges = get_cdi_nudges(note, encounter_id="e10")
+    assert any(n.id.startswith("I21.9_mi_type") for n in nudges)  # nudge is keyed on the correct (MI) principal
+
+
+def test_elect_principal_matches_coding_engine_ranking():
+    note = "Patient has pneumonia and myocardial infarction."
+    matches = match_clinical_text(note)
+    engine_result = run_coding_engine(note)
+    assert elect_principal(matches)[0]["entry"]["code"] == engine_result["principal_code"]
+
+
+# --- encounter_type must be validated, not silently mis-grouped
+# (regression test for a reviewer-flagged bug: a mis-cased or misspelled
+# encounter_type used to pass through unchecked and silently fall back to
+# APR-DRG methodology instead of EAPG). ---
+def test_analyze_request_rejects_invalid_encounter_type():
+    import pytest as _pytest
+    from pydantic import ValidationError
+
+    from src.backend.cdi_api import AnalyzeRequest
+
+    with _pytest.raises(ValidationError):
+        AnalyzeRequest(clinical_note="test note", encounter_type="outpatient")  # wrong case
+
+
+def test_analyze_request_accepts_valid_encounter_type():
+    from src.backend.cdi_api import AnalyzeRequest
+
+    req = AnalyzeRequest(clinical_note="test note", encounter_type="OUTPATIENT")
+    assert req.encounter_type == "OUTPATIENT"

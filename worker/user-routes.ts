@@ -3,7 +3,7 @@ import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
 import type { CodingJob, Analytics } from "@shared/types";
-import { runCodingEngine, classifyAutomationPhase } from "@shared/coding-engine";
+import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType } from "@shared/coding-engine";
 import { generateCdiNudges } from "@shared/cdi-rules";
 import { computeCaseMixIndex } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
@@ -91,7 +91,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       const clinical_note: string = body?.clinical_note;
       const visit_complexity: string = body?.visit_complexity || 'standard';
       const age: number | undefined = typeof body?.age === 'number' ? body.age : undefined;
-      const encounter_type: 'INPATIENT' | 'OUTPATIENT' | 'ED' | undefined = body?.encounter_type;
+      const encounter_type = normalizeEncounterType(body?.encounter_type);
       if (!isStr(clinical_note)) {
         await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'note.ingestion_failed', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
         return bad(c, 'clinical_note is required');

@@ -3,7 +3,7 @@ from typing import List, Optional, Literal
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
 
-from .coding_engine import contains_any, detect_language, match_clinical_text, match_procedures, strip_diacritics
+from .coding_engine import contains_any, detect_language, elect_principal, match_clinical_text, match_procedures, strip_diacritics
 from .drg_grouper import group_encounter
 
 app = FastAPI(
@@ -30,7 +30,11 @@ class AnalyzeRequest(BaseModel):
     encounter_id: Optional[str] = Field(None, description="The ID of the encounter, if available.")
     clinical_note: str = Field(..., description="The draft clinical note text (Arabic, English, or mixed).")
     age: Optional[float] = Field(None, description="Patient age, used for Risk of Mortality (ROM) weighting.")
-    encounter_type: str = Field("INPATIENT", description="INPATIENT | OUTPATIENT | ED")
+    # A plain `str` here would let a mis-cased or misspelled value ("outpatient",
+    # "Outpatient") silently fall through the grouper's exact-match methodology
+    # selection as if it were INPATIENT. Literal makes FastAPI/Pydantic reject
+    # anything else with a clear 422 instead of miscategorizing the encounter.
+    encounter_type: Literal["INPATIENT", "OUTPATIENT", "ED"] = Field("INPATIENT", description="INPATIENT | OUTPATIENT | ED")
 
 
 class AnalyzeResponse(BaseModel):
@@ -49,8 +53,12 @@ def get_cdi_nudges(note: str, encounter_id: str = "draft", age: Optional[float] 
     matches = match_clinical_text(note)
     if not matches:
         return []
-    principal_code = matches[0]["entry"]["code"]
-    secondary_codes = [m["entry"]["code"] for m in matches[1:]]
+    # Use the same acuity-weighted ranking as the main coding engine (not raw
+    # lexicon/insertion order) so the SOI-impact baseline is anchored on the
+    # actual principal diagnosis for multi-diagnosis notes.
+    ranked = elect_principal(matches)
+    principal_code = ranked[0]["entry"]["code"]
+    secondary_codes = [m["entry"]["code"] for m in ranked[1:]]
     procedure_codes = [p["entry"]["code"] for p in match_procedures(note)]
     baseline = group_encounter(principal_code, secondary_codes, procedure_codes=procedure_codes, age=age, encounter_type=encounter_type)
     # Normalized (diacritic-stripped) so a modifier keyword still resolves even

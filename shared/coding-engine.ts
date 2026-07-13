@@ -37,6 +37,20 @@ export function detectLanguage(text: string): 'en' | 'ar' | 'mixed' {
   if (arabicChars > 0) return 'ar';
   return 'en';
 }
+/**
+ * Normalizes an untrusted `encounter_type` value from request JSON. The
+ * grouper selects APR-DRG vs. EAPG methodology by exact string equality
+ * against 'OUTPATIENT', so a mis-cased or misspelled value (e.g.
+ * "outpatient") would otherwise silently fall through to APR-DRG with the
+ * wrong methodology and relative weight. Defaults to 'INPATIENT' for any
+ * unrecognized input rather than rejecting the request, consistent with how
+ * this API tolerates other optional fields (see visit_complexity).
+ */
+export function normalizeEncounterType(raw: unknown): 'INPATIENT' | 'OUTPATIENT' | 'ED' {
+  const upper = typeof raw === 'string' ? raw.trim().toUpperCase() : '';
+  if (upper === 'OUTPATIENT' || upper === 'ED' || upper === 'INPATIENT') return upper;
+  return 'INPATIENT';
+}
 // Cached so each term's regex is compiled once and reused across every note
 // analyzed, rather than recompiled on every call — this runs once per
 // lexicon synonym/negation/uncertainty/modifier-keyword term per note, which
@@ -154,8 +168,13 @@ export interface CodingEngineResult {
   detected_language: 'en' | 'ar' | 'mixed';
   confidence_score: number;
 }
-/** Elects the clinically dominant diagnosis (weighted by acuity, not just confidence) as principal. */
-function electPrincipal(matches: MatchedTermInfo[]): MatchedTermInfo[] {
+/**
+ * Elects the clinically dominant diagnosis (weighted by acuity, not just
+ * confidence) as principal. Exported so any caller that needs a
+ * principal/secondary split (e.g. cdi-rules.ts) uses the exact same ranking
+ * as the main engine, rather than relying on the lexicon's insertion order.
+ */
+export function electPrincipal(matches: MatchedTermInfo[]): MatchedTermInfo[] {
   return [...matches].sort((a, b) => {
     const scoreA = a.confidence * (1 + a.entry.soi_weight + a.entry.rom_weight);
     const scoreB = b.confidence * (1 + b.entry.soi_weight + b.entry.rom_weight);
