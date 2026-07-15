@@ -1,7 +1,11 @@
 import { ApiResponse } from "../../shared/types";
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/use-auth';
-const API_BASE_URL = '/api';
+// Every call site already passes a fully-qualified path (e.g. api('/api/claims')),
+// so this must NOT also prepend '/api' — doing so produced '/api/api/claims',
+// which 404s. Kept as a named constant (rather than removed outright) so a
+// future path convention change has one obvious place to update.
+const API_BASE_URL = '';
 interface ApiRequestInit extends RequestInit {
   params?: Record<string, string | number | boolean>;
   retry?: number;
