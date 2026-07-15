@@ -142,6 +142,14 @@ export interface Analytics {
     department_ar?: string;
     created_at: string; // ISO string
 }
+/** Server-side account record: password is never stored or transmitted in plaintext. */
+export interface Account {
+  id: string; // username, lowercased
+  username: string;
+  password_hash: string;
+  salt: string;
+  role: 'admin' | 'coder';
+}
 export interface DepartmentCaseMixRow {
   department_en: string;
   department_ar: string;

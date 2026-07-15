@@ -1,5 +1,6 @@
 import { ApiResponse } from "../../shared/types";
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/use-auth';
 const API_BASE_URL = '/api';
 interface ApiRequestInit extends RequestInit {
   params?: Record<string, string | number | boolean>;
@@ -39,13 +40,29 @@ export async function api<T>(path: string, init?: ApiRequestInit): Promise<T> {
       url += `?${queryString}`;
     }
   }
+  const token = useAuth.getState().token;
   try {
     const res = await fetch(url, {
       ...init,
-      headers: { 'Content-Type': 'application/json', ...init?.headers },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...init?.headers,
+      },
       signal: init?.signal || controller.signal,
     });
     clearTimeout(timeoutId);
+    if (res.status === 401 && path !== '/auth/login') {
+      // Session expired or was never established: drop local auth state and
+      // send the user back to login rather than showing a confusing generic error.
+      useAuth.getState().logout();
+      const authError = new Error('Your session has expired. Please sign in again.');
+      toast.error('Session Expired', { description: authError.message });
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.location.assign('/login');
+      }
+      throw authError;
+    }
     const json = (await res.json()) as ApiResponse<T>;
     if (!res.ok || !json.success || json.data === undefined) {
       const errorMessage = json.error || `Request failed with status ${res.status}`;

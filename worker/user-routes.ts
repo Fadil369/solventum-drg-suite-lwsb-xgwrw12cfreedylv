@@ -1,13 +1,67 @@
 import { Hono } from "hono";
 import type { Env } from './core-utils';
-import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity } from "./entities";
+import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity, AccountEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
 import type { CodingJob, Analytics } from "@shared/types";
 import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType } from "@shared/coding-engine";
 import { generateCdiNudges } from "@shared/cdi-rules";
 import { computeCaseMixIndex, computeDepartmentDistribution } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
+import { createToken, verifyToken, verifyPassword, type TokenPayload } from "./auth";
+// API routes reachable without a valid session token. Every other /api/*
+// route requires 'Authorization: Bearer <token>' — this is a clinical
+// coding/CDI system handling patient identifiers and diagnosis text, so
+// unauthenticated read/write access is not acceptable even for a demo.
+const PUBLIC_API_PATHS = new Set(['/api/auth/login', '/api/health', '/api/client-errors']);
+function getAuthSecret(env: Env): string {
+  const secret = (env as unknown as { AUTH_SECRET?: string }).AUTH_SECRET;
+  if (!secret) throw new Error('AUTH_SECRET is not configured on this Worker (wrangler secret put AUTH_SECRET)');
+  return secret;
+}
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
+  app.use('/api/*', async (c, next) => {
+    if (PUBLIC_API_PATHS.has(c.req.path)) return next();
+    const authHeader = c.req.header('Authorization');
+    const token = authHeader?.startsWith('Bearer ') ? authHeader.slice('Bearer '.length) : undefined;
+    if (!token) return c.json({ success: false, error: 'Authentication required' }, 401);
+    let secret: string;
+    try {
+      secret = getAuthSecret(c.env);
+    } catch (err) {
+      console.error(err);
+      return c.json({ success: false, error: 'Server misconfigured' }, 500);
+    }
+    const payload = await verifyToken(token, secret);
+    if (!payload) return c.json({ success: false, error: 'Invalid or expired session' }, 401);
+    c.set('authUser' as never, payload as never);
+    await next();
+  });
+  // POST login: verifies a salted PBKDF2 password hash server-side and
+  // issues an HMAC-signed session token. No password ever leaves the client
+  // in plaintext beyond this single request, and none is ever stored in the
+  // frontend bundle (contrast with the previous client-side-only mock auth).
+  app.post('/api/auth/login', async (c) => {
+    const { username, password } = (await c.req.json().catch(() => ({}))) as { username?: string; password?: string };
+    if (!isStr(username) || !isStr(password)) return bad(c, 'username and password are required');
+    await AccountEntity.ensureSeed(c.env);
+    const account = new AccountEntity(c.env, username.trim().toLowerCase());
+    if (!(await account.exists())) return c.json({ success: false, error: 'Invalid username or password' }, 401);
+    const state = await account.getState();
+    const valid = await verifyPassword(password, state.salt, state.password_hash);
+    if (!valid) return c.json({ success: false, error: 'Invalid username or password' }, 401);
+    let secret: string;
+    try {
+      secret = getAuthSecret(c.env);
+    } catch (err) {
+      console.error(err);
+      return c.json({ success: false, error: 'Server misconfigured' }, 500);
+    }
+    const token = await createToken({ username: state.username, role: state.role }, secret);
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: `user:${state.username}`, action: 'auth.login', object_type: 'account', object_id: state.username, occurred_at: new Date().toISOString() });
+    return ok(c, { token, username: state.username, role: state.role });
+  });
+  // GET current session (already validated by the middleware above).
+  app.get('/api/auth/me', (c) => ok(c, c.get('authUser' as never) as TokenPayload));
   // GET the bilingual nphies/Etimad field mapping table (PRD Section 4.0)
   app.get('/api/nphies-field-map', async (c) => {
     c.header('Cache-Control', 'public, max-age=3600');
@@ -95,6 +149,12 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       if (!isStr(clinical_note)) {
         await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'note.ingestion_failed', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
         return bad(c, 'clinical_note is required');
+      }
+      // Bounded to a clinically plausible human age range so a garbage value
+      // (unit-conversion bug, negative offset, accidental day-count) doesn't
+      // silently fold into the ROM neonatal/geriatric adjustments below.
+      if (age !== undefined && (age < 0 || age > 120)) {
+        return bad(c, 'age must be between 0 and 120');
       }
       const engineResult = runCodingEngine(clinical_note, { age, encounterType: encounter_type });
       const { phase, status } = classifyAutomationPhase(engineResult.confidence_score, visit_complexity);

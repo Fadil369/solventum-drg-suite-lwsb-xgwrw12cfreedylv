@@ -29,7 +29,10 @@ class Nudge(BaseModel):
 class AnalyzeRequest(BaseModel):
     encounter_id: Optional[str] = Field(None, description="The ID of the encounter, if available.")
     clinical_note: str = Field(..., description="The draft clinical note text (Arabic, English, or mixed).")
-    age: Optional[float] = Field(None, description="Patient age, used for Risk of Mortality (ROM) weighting.")
+    # Bounded to a clinically plausible human age range so a garbage value
+    # (unit-conversion bug, negative offset, accidental day-count) doesn't
+    # silently fold into the ROM neonatal/geriatric adjustments below.
+    age: Optional[float] = Field(None, ge=0, le=120, description="Patient age in years (0-120), used for Risk of Mortality (ROM) weighting.")
     # A plain `str` here would let a mis-cased or misspelled value ("outpatient",
     # "Outpatient") silently fall through the grouper's exact-match methodology
     # selection as if it were INPATIENT. Literal makes FastAPI/Pydantic reject

@@ -17,7 +17,22 @@
 import { runCodingEngine, classifyAutomationPhase } from '../shared/coding-engine';
 import { generateCdiNudges } from '../shared/cdi-rules';
 import { NOTE_PLAN } from '../shared/mock-data';
-import type { CodingJob, Nudge, Analytics } from '../shared/types';
+import type { CodingJob, Nudge, Analytics, Account } from '../shared/types';
+import { generateSalt, hashPassword } from '../worker/auth';
+
+// Demo accounts only. These credentials are intentionally not "admin/password" —
+// rotate or remove them before any real deployment (see README).
+const DEMO_ACCOUNTS: { username: string; password: string; role: Account['role'] }[] = [
+  { username: 'admin', password: 'BrainSAIT-Admin-2026!', role: 'admin' },
+  { username: 'coder', password: 'BrainSAIT-Coder-2026!', role: 'coder' },
+];
+const accounts: Account[] = await Promise.all(
+  DEMO_ACCOUNTS.map(async ({ username, password, role }) => {
+    const salt = generateSalt();
+    const password_hash = await hashPassword(password, salt);
+    return { id: username, username, password_hash, salt, role };
+  })
+);
 
 const codingJobs: CodingJob[] = NOTE_PLAN.map((plan, index) => {
   const engineResult = runCodingEngine(plan.note, { age: plan.age, encounterType: plan.encounter_type });
@@ -66,14 +81,16 @@ const header = `/**
  * Regenerate with \`bun run generate:seed\` after changing NOTE_PLAN, the
  * bilingual lexicon, or the coding/DRG engine.
  */
-import type { CodingJob, Nudge, Analytics } from './types';
+import type { CodingJob, Nudge, Analytics, Account } from './types';
 `;
 
 const body = [
   `export const MOCK_CODING_JOBS: CodingJob[] = ${JSON.stringify(codingJobs, null, 2)};`,
   `export const MOCK_NUDGES: Nudge[] = ${JSON.stringify(nudges, null, 2)};`,
   `export const MOCK_ANALYTICS: Analytics[] = ${JSON.stringify(analytics, null, 2)};`,
+  `// Demo accounts — rotate/remove before real deployment. See README "Default credentials".`,
+  `export const MOCK_ACCOUNTS: Account[] = ${JSON.stringify(accounts, null, 2)};`,
 ].join('\n');
 
 await Bun.write(new URL('../shared/seed-data.generated.ts', import.meta.url), `${header}\n${body}\n`);
-console.log(`Generated shared/seed-data.generated.ts: ${codingJobs.length} coding jobs, ${nudges.length} nudges, ${analytics.length} analytics rows.`);
+console.log(`Generated shared/seed-data.generated.ts: ${codingJobs.length} coding jobs, ${nudges.length} nudges, ${analytics.length} analytics rows, ${accounts.length} accounts.`);

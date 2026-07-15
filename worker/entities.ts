@@ -2,8 +2,8 @@
  * Minimal real-world demo: One Durable Object instance per entity (User, ChatBoard), with Indexes for listing.
  */
 import { IndexedEntity } from "./core-utils";
-import type { User, Chat, ChatMessage, Patient, Claim, CodingJob, Encounter, Nudge, AuditLog, Payment, Analytics } from "@shared/types";
-import { MOCK_CHAT_MESSAGES, MOCK_CHATS, MOCK_USERS, MOCK_PATIENTS, MOCK_CLAIMS, MOCK_CODING_JOBS, MOCK_ENCOUNTERS, MOCK_NUDGES, MOCK_AUDIT_LOGS, MOCK_PAYMENTS, MOCK_ANALYTICS } from "@shared/mock-data";
+import type { User, Chat, ChatMessage, Patient, Claim, CodingJob, Encounter, Nudge, AuditLog, Payment, Analytics, Account } from "@shared/types";
+import { MOCK_CHAT_MESSAGES, MOCK_CHATS, MOCK_USERS, MOCK_PATIENTS, MOCK_CLAIMS, MOCK_CODING_JOBS, MOCK_ENCOUNTERS, MOCK_NUDGES, MOCK_AUDIT_LOGS, MOCK_PAYMENTS, MOCK_ANALYTICS, MOCK_ACCOUNTS } from "@shared/mock-data";
 // USER ENTITY: one DO instance per user
 export class UserEntity extends IndexedEntity<User> {
   static readonly entityName = "user";
@@ -80,4 +80,11 @@ export class AnalyticsEntity extends IndexedEntity<Analytics> {
     static readonly indexName = "analytics_jobs";
     static readonly initialState: Analytics = { id: "", job_id: "", accuracy: 0, phase: "CAC", created_at: "" };
     static seedData = MOCK_ANALYTICS;
+}
+// ACCOUNT ENTITY: server-side authenticated user accounts (id = lowercased username)
+export class AccountEntity extends IndexedEntity<Account> {
+    static readonly entityName = "account";
+    static readonly indexName = "accounts";
+    static readonly initialState: Account = { id: "", username: "", password_hash: "", salt: "", role: "coder" };
+    static seedData = MOCK_ACCOUNTS;
 }

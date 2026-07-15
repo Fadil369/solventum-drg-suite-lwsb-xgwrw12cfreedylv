@@ -94,7 +94,7 @@ export const NOTE_PLAN: NotePlan[] = [
   { encounter_id: 'e1', note: MOCK_CLINICAL_NOTES[15], encounter_type: 'INPATIENT', age: 33 }, // appendectomy -> Surgical partition
   { encounter_id: 'e2', note: MOCK_CLINICAL_NOTES[16], encounter_type: 'INPATIENT', age: 52 }, // Arabic-only: cholecystectomy -> Surgical partition
 ];
-export { MOCK_CODING_JOBS, MOCK_NUDGES, MOCK_ANALYTICS } from './seed-data.generated';
+export { MOCK_CODING_JOBS, MOCK_NUDGES, MOCK_ANALYTICS, MOCK_ACCOUNTS } from './seed-data.generated';
 export const MOCK_AUDIT_LOGS: AuditLog[] = [
     { id: 'al1', actor: 'system', action: 'claim.submitted', object_type: 'claim', object_id: 'cl2', occurred_at: new Date().toISOString() },
     { id: 'al2', actor: 'user:coder@hospital.sa', action: 'coding_job.reviewed', object_type: 'coding_job', object_id: 'job1', occurred_at: new Date(Date.now() - 3600000).toISOString() },

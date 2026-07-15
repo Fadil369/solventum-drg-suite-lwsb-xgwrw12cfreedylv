@@ -521,3 +521,16 @@ def test_analyze_request_rejects_invalid_encounter_type():
 def test_analyze_request_accepts_valid_encounter_type():
     req = AnalyzeRequest(clinical_note="test note", encounter_type="OUTPATIENT")
     assert req.encounter_type == "OUTPATIENT"
+
+
+# --- age must be a plausible human age, not silently folded into ROM math ---
+@pytest.mark.parametrize("bad_age", [-5, -0.5, 121, 1000])
+def test_analyze_request_rejects_implausible_age(bad_age):
+    with pytest.raises(ValidationError):
+        AnalyzeRequest(clinical_note="test note", age=bad_age)
+
+
+@pytest.mark.parametrize("good_age", [0, 1, 65, 120])
+def test_analyze_request_accepts_plausible_age(good_age):
+    req = AnalyzeRequest(clinical_note="test note", age=good_age)
+    assert req.age == good_age
