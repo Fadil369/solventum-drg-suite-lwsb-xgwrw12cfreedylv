@@ -5,7 +5,7 @@ import { ok, bad, notFound, isStr } from './core-utils';
 import type { CodingJob, Analytics } from "@shared/types";
 import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType } from "@shared/coding-engine";
 import { generateCdiNudges } from "@shared/cdi-rules";
-import { computeCaseMixIndex } from "@shared/drg-grouper";
+import { computeCaseMixIndex, computeDepartmentDistribution } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
   // GET the bilingual nphies/Etimad field mapping table (PRD Section 4.0)
@@ -124,6 +124,9 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         relative_weight: engineResult.drg.relative_weight,
         soi: engineResult.drg.soi,
         rom: engineResult.drg.rom,
+        drg_family: engineResult.drg.code,
+        department_en: engineResult.drg.department_en,
+        department_ar: engineResult.drg.department_ar,
         created_at: new Date().toISOString(),
       };
       await AnalyticsEntity.create(c.env, newAnalytics);
@@ -225,12 +228,18 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
           soiDistribution[key] = (soiDistribution[key] ?? 0) + 1;
         }
       }
+      const departmentRows = analyticsItems.filter(
+        (a): a is Analytics & { relative_weight: number; department_en: string; department_ar: string } =>
+          typeof a.relative_weight === 'number' && typeof a.department_en === 'string' && typeof a.department_ar === 'string'
+      );
+      const departmentDistribution = computeDepartmentDistribution(departmentRows);
       await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'analytics.queried', object_type: 'system', object_id: 'dashboard', occurred_at: new Date().toISOString() });
       return ok(c, {
         accuracy: Math.round(avgAccuracy),
         claimStats: { approved, rejected, totalAmount },
         caseMixIndex,
         soiDistribution,
+        departmentDistribution,
       });
     } catch (error) {
       console.error("Analytics endpoint error:", error);

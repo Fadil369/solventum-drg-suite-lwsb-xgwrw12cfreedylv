@@ -15,7 +15,14 @@ from src.backend.coding_engine import (
     match_procedures,
     run_coding_engine,
 )
-from src.backend.drg_grouper import DRG_FAMILY_TABLE, compute_case_mix_index, group_encounter, round_half_up_2dp
+from src.backend.drg_grouper import (
+    DEPARTMENTS,
+    DRG_FAMILY_TABLE,
+    compute_case_mix_index,
+    compute_department_distribution,
+    group_encounter,
+    round_half_up_2dp,
+)
 from src.backend.cdi_api import AnalyzeRequest, get_cdi_nudges
 from src.backend.bilingual_lexicon import BILINGUAL_LEXICON
 from src.backend.procedure_lexicon import PROCEDURE_LEXICON
@@ -251,6 +258,39 @@ def test_lexicon_covers_broad_clinical_breadth():
     assert len(families) >= 60
     # every family referenced by the lexicon must have DRG metadata
     assert families.issubset(DRG_FAMILY_TABLE.keys())
+
+
+# --- Department dimension: the suite must route to real hospital departments, not just DRG codes ---
+def test_every_drg_family_has_a_department():
+    for code, meta in DRG_FAMILY_TABLE.items():
+        assert meta.get("department_en"), f"{code} is missing department_en"
+        assert meta.get("department_ar"), f"{code} is missing department_ar"
+
+
+def test_departments_cover_real_hospital_breadth():
+    department_names = {d["en"] for d in DEPARTMENTS}
+    assert len(department_names) >= 15
+    for expected in ("Cardiology", "Emergency Medicine", "Pediatrics", "Obstetrics & Gynecology", "Psychiatry"):
+        assert expected in department_names
+
+
+def test_group_encounter_returns_department():
+    drg = group_encounter("I21.9", [], encounter_type="ED")  # acute MI
+    assert drg["department_en"] == "Cardiology"
+    assert drg["department_ar"]
+
+
+def test_compute_department_distribution_aggregates_case_mix_per_department():
+    results = [
+        group_encounter("I21.9", [], encounter_type="ED"),  # Cardiology
+        group_encounter("I10", [], encounter_type="OUTPATIENT"),  # Cardiology
+        group_encounter("K37", [], encounter_type="ED"),  # General Surgery
+    ]
+    distribution = compute_department_distribution(results)
+    by_name = {row["department_en"]: row for row in distribution}
+    assert by_name["Cardiology"]["encounter_count"] == 2
+    assert by_name["General Surgery"]["encounter_count"] == 1
+    assert by_name["Cardiology"]["case_mix_index"] > 0
 
 
 @pytest.mark.parametrize(

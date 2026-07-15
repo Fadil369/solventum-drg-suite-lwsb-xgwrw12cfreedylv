@@ -71,6 +71,9 @@ export interface DrgResult {
   code: string; // e.g. "194"
   title_en: string;
   title_ar: string;
+  /** The clinical department that owns this DRG family (e.g. "Cardiology"), for cross-department routing/reporting. */
+  department_en: string;
+  department_ar: string;
   soi: 1 | 2 | 3 | 4; // Severity of Illness
   rom: 1 | 2 | 3 | 4; // Risk of Mortality
   relative_weight: number; // drives Case Mix Index (CMI)
@@ -134,6 +137,15 @@ export interface Analytics {
     relative_weight?: number; // contributes to Case Mix Index
     soi?: number;
     rom?: number;
+    drg_family?: string;
+    department_en?: string;
+    department_ar?: string;
     created_at: string; // ISO string
+}
+export interface DepartmentCaseMixRow {
+  department_en: string;
+  department_ar: string;
+  encounter_count: number;
+  case_mix_index: number;
 }
 export type Language = 'en' | 'ar';

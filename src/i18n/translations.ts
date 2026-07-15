@@ -141,6 +141,10 @@ export const TRANSLATIONS = {
   'dashboard.claimStatusOverview': { en: 'Claim Status Overview', ar: 'نظرة عامة على حالة المطالبات' },
   'dashboard.approvedVsRejected': { en: 'Approved vs. Rejected claims.', ar: 'المطالبات المعتمدة مقابل المرفوضة.' },
   'dashboard.noRecentClaims': { en: 'No recent claims found.', ar: 'لا توجد مطالبات حديثة.' },
+  'dashboard.departmentCaseMix': { en: 'Case Mix by Department', ar: 'مزيج الحالات حسب القسم' },
+  'dashboard.departmentCaseMixDesc': { en: 'Encounter volume and Case Mix Index across every clinical department the system covers.', ar: 'حجم الزيارات ومؤشر مزيج الحالات عبر كل قسم سريري يغطيه النظام.' },
+  'dashboard.encounters': { en: 'Encounters', ar: 'الزيارات' },
+  'dashboard.noDepartmentData': { en: 'No department data yet.', ar: 'لا توجد بيانات أقسام حتى الآن.' },
   // --- Login ---
   'login.title': { en: 'Sign in to BrainSAIT', ar: 'تسجيل الدخول إلى برينسايت' },
   'login.username': { en: 'Username', ar: 'اسم المستخدم' },

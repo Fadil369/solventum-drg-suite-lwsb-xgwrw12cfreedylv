@@ -55,6 +55,9 @@ const analytics: Analytics[] = codingJobs.map((job, index) => ({
   relative_weight: job.drg?.relative_weight,
   soi: job.drg?.soi,
   rom: job.drg?.rom,
+  drg_family: job.drg?.code,
+  department_en: job.drg?.department_en,
+  department_ar: job.drg?.department_ar,
   created_at: job.created_at,
 }));
 

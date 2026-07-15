@@ -37,7 +37,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.65,
     "phase": "CAC",
-    "created_at": "2026-07-15T13:18:44.375Z",
+    "created_at": "2026-07-15T13:24:43.479Z",
     "source_text": "Pneumonia with bacterial organism suspected. سعال شديد reported.",
     "principal_code": "J18.9",
     "secondary_codes": [
@@ -47,6 +47,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "194",
       "title_en": "Cardiopulmonary Medical Management",
       "title_ar": "الإدارة الطبية لأمراض القلب والرئة",
+      "department_en": "Internal Medicine",
+      "department_ar": "الطب الباطني",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.95,
@@ -90,7 +92,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.9,
     "phase": "CAC",
-    "created_at": "2026-07-15T12:18:44.382Z",
+    "created_at": "2026-07-15T12:24:43.485Z",
     "source_text": "Patient presents with classic signs of acute myocardial infarction. EKG confirms.",
     "principal_code": "I21.9",
     "secondary_codes": [],
@@ -98,6 +100,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "190",
       "title_en": "Acute Myocardial Infarction",
       "title_ar": "احتشاء عضلة القلب الحاد",
+      "department_en": "Cardiology",
+      "department_ar": "أمراض القلب",
       "soi": 2,
       "rom": 2,
       "relative_weight": 1.6,
@@ -139,7 +143,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.9,
     "phase": "CAC",
-    "created_at": "2026-07-15T11:18:44.384Z",
+    "created_at": "2026-07-15T11:24:43.487Z",
     "source_text": "Diagnosis of appendicitis confirmed by imaging. ألم الزائدة is severe with perforation.",
     "principal_code": "K37",
     "secondary_codes": [],
@@ -147,6 +151,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "261",
       "title_en": "Appendectomy & Appendiceal Conditions",
       "title_ar": "استئصال الزائدة الدودية وحالاتها",
+      "department_en": "General Surgery",
+      "department_ar": "الجراحة العامة",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.8,
@@ -188,7 +194,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.88,
     "phase": "CAC",
-    "created_at": "2026-07-15T10:18:44.385Z",
+    "created_at": "2026-07-15T10:24:43.488Z",
     "source_text": "Left leg fracture after fall, كسر in tibia.",
     "principal_code": "S82.202A",
     "secondary_codes": [],
@@ -196,6 +202,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "302",
       "title_en": "Fractures & Musculoskeletal Trauma",
       "title_ar": "الكسور وإصابات الجهاز العضلي الهيكلي",
+      "department_en": "Orthopedics",
+      "department_ar": "جراحة العظام",
       "soi": 2,
       "rom": 1,
       "relative_weight": 0.75,
@@ -237,7 +245,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.8,
     "phase": "CAC",
-    "created_at": "2026-07-15T09:18:44.386Z",
+    "created_at": "2026-07-15T09:24:43.489Z",
     "source_text": "UTI with catheter association.",
     "principal_code": "N39.0",
     "secondary_codes": [],
@@ -245,6 +253,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "466",
       "title_en": "Urinary Tract Infection",
       "title_ar": "التهاب المسالك البولية",
+      "department_en": "Urology",
+      "department_ar": "المسالك البولية",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.65,
@@ -288,7 +298,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "SENT_TO_NPHIES",
     "confidence_score": 0.99,
     "phase": "AUTONOMOUS",
-    "created_at": "2026-07-15T08:18:44.386Z",
+    "created_at": "2026-07-15T08:24:43.490Z",
     "source_text": "Routine check for hypertension, well controlled, no crisis.",
     "principal_code": "I10",
     "secondary_codes": [],
@@ -296,6 +306,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "201",
       "title_en": "Hypertension",
       "title_ar": "ارتفاع ضغط الدم",
+      "department_en": "Cardiology",
+      "department_ar": "أمراض القلب",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.6,
@@ -359,7 +371,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.62,
     "phase": "CAC",
-    "created_at": "2026-07-15T07:18:44.387Z",
+    "created_at": "2026-07-15T07:24:43.491Z",
     "source_text": "Patient complains of cough and fever. Suspected pneumonia.",
     "principal_code": "J18.9",
     "secondary_codes": [
@@ -370,6 +382,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "194",
       "title_en": "Cardiopulmonary Medical Management",
       "title_ar": "الإدارة الطبية لأمراض القلب والرئة",
+      "department_en": "Internal Medicine",
+      "department_ar": "الطب الباطني",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.95,
@@ -413,7 +427,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.9,
     "phase": "CAC",
-    "created_at": "2026-07-15T06:18:44.388Z",
+    "created_at": "2026-07-15T06:24:43.491Z",
     "source_text": "Diabetes type 2, E11.9 unspecified, with diabetic nephropathy.",
     "principal_code": "E11.9",
     "secondary_codes": [],
@@ -421,6 +435,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "420",
       "title_en": "Diabetes",
       "title_ar": "داء السكري",
+      "department_en": "Endocrinology",
+      "department_ar": "الغدد الصماء",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.7,
@@ -462,7 +478,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "AUTO_DROP",
     "confidence_score": 0.99,
     "phase": "SEMI_AUTONOMOUS",
-    "created_at": "2026-07-15T05:18:44.389Z",
+    "created_at": "2026-07-15T05:24:43.493Z",
     "source_text": "High blood pressure diagnosed, ضغط دم مرتفع controlled with medication.",
     "principal_code": "I10",
     "secondary_codes": [],
@@ -470,6 +486,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "201",
       "title_en": "Hypertension",
       "title_ar": "ارتفاع ضغط الدم",
+      "department_en": "Cardiology",
+      "department_ar": "أمراض القلب",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.6,
@@ -511,7 +529,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.9,
     "phase": "CAC",
-    "created_at": "2026-07-15T04:18:44.390Z",
+    "created_at": "2026-07-15T04:24:43.493Z",
     "source_text": "Patient with sukari symptoms, no complications noted.",
     "principal_code": "E11.9",
     "secondary_codes": [],
@@ -519,6 +537,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "420",
       "title_en": "Diabetes",
       "title_ar": "داء السكري",
+      "department_en": "Endocrinology",
+      "department_ar": "الغدد الصماء",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.7,
@@ -560,7 +580,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.85,
     "phase": "CAC",
-    "created_at": "2026-07-15T03:18:44.391Z",
+    "created_at": "2026-07-15T03:24:43.495Z",
     "source_text": "مريض يعاني من التهاب رئوي بكتيري وكسر في الساق اليسرى.",
     "principal_code": "J18.9",
     "secondary_codes": [],
@@ -568,6 +588,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "194",
       "title_en": "Cardiopulmonary Medical Management",
       "title_ar": "الإدارة الطبية لأمراض القلب والرئة",
+      "department_en": "Internal Medicine",
+      "department_ar": "الطب الباطني",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.95,
@@ -611,7 +633,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.9,
     "phase": "CAC",
-    "created_at": "2026-07-15T02:18:44.393Z",
+    "created_at": "2026-07-15T02:24:43.496Z",
     "source_text": "المريض حالة معروفة بداء السكري ويأتي للمراجعة الروتينية دون مضاعفات.",
     "principal_code": "E11.9",
     "secondary_codes": [],
@@ -619,6 +641,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "420",
       "title_en": "Diabetes",
       "title_ar": "داء السكري",
+      "department_en": "Endocrinology",
+      "department_ar": "الغدد الصماء",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.7,
@@ -660,7 +684,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.75,
     "phase": "CAC",
-    "created_at": "2026-07-15T01:18:44.393Z",
+    "created_at": "2026-07-15T01:24:43.497Z",
     "source_text": "Appendix pain and inflammation, suspected appendicitis.",
     "principal_code": "K37",
     "secondary_codes": [],
@@ -668,6 +692,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "261",
       "title_en": "Appendectomy & Appendiceal Conditions",
       "title_ar": "استئصال الزائدة الدودية وحالاتها",
+      "department_en": "General Surgery",
+      "department_ar": "الجراحة العامة",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.8,
@@ -709,7 +735,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.9,
     "phase": "CAC",
-    "created_at": "2026-07-15T00:18:44.394Z",
+    "created_at": "2026-07-15T00:24:43.497Z",
     "source_text": "Myocardial infarction STEMI confirmed.",
     "principal_code": "I21.9",
     "secondary_codes": [],
@@ -717,6 +743,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "190",
       "title_en": "Acute Myocardial Infarction",
       "title_ar": "احتشاء عضلة القلب الحاد",
+      "department_en": "Cardiology",
+      "department_ar": "أمراض القلب",
       "soi": 2,
       "rom": 3,
       "relative_weight": 1.6,
@@ -760,7 +788,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "AUTO_DROP",
     "confidence_score": 0.99,
     "phase": "SEMI_AUTONOMOUS",
-    "created_at": "2026-07-14T23:18:44.394Z",
+    "created_at": "2026-07-14T23:24:43.498Z",
     "source_text": "Hypertension crisis, I10 code needed.",
     "principal_code": "I10",
     "secondary_codes": [],
@@ -768,6 +796,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "201",
       "title_en": "Hypertension",
       "title_ar": "ارتفاع ضغط الدم",
+      "department_en": "Cardiology",
+      "department_ar": "أمراض القلب",
       "soi": 2,
       "rom": 2,
       "relative_weight": 0.6,
@@ -816,7 +846,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.9,
     "phase": "CAC",
-    "created_at": "2026-07-14T22:18:44.395Z",
+    "created_at": "2026-07-14T22:24:43.500Z",
     "source_text": "Patient underwent appendectomy for acute appendicitis with perforation.",
     "principal_code": "K37",
     "secondary_codes": [],
@@ -824,6 +854,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "261",
       "title_en": "Appendectomy & Appendiceal Conditions",
       "title_ar": "استئصال الزائدة الدودية وحالاتها",
+      "department_en": "General Surgery",
+      "department_ar": "الجراحة العامة",
       "soi": 2,
       "rom": 2,
       "relative_weight": 1.28,
@@ -877,7 +909,7 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
     "status": "NEEDS_REVIEW",
     "confidence_score": 0.86,
     "phase": "CAC",
-    "created_at": "2026-07-14T21:18:44.399Z",
+    "created_at": "2026-07-14T21:24:43.502Z",
     "source_text": "مريض تم له استئصال المرارة بسبب التهاب المرارة الحاد.",
     "principal_code": "K81.9",
     "secondary_codes": [],
@@ -885,6 +917,8 @@ export const MOCK_CODING_JOBS: CodingJob[] = [
       "code": "220",
       "title_en": "Cholecystitis & Biliary Disease",
       "title_ar": "التهاب المرارة وأمراض القنوات الصفراوية",
+      "department_en": "General Surgery",
+      "department_ar": "الجراحة العامة",
       "soi": 2,
       "rom": 2,
       "relative_weight": 1.2,
@@ -922,7 +956,7 @@ export const MOCK_NUDGES: Nudge[] = [
     "soi_impact": "Closing this documentation gap could raise SOI from 2 to 3.",
     "soi_impact_ar": "قد يؤدي إغلاق هذه الفجوة التوثيقية إلى رفع درجة شدة المرض (SOI) من 2 إلى 3.",
     "status": "resolved",
-    "created_at": "2026-07-15T13:18:44.494Z"
+    "created_at": "2026-07-15T13:24:43.548Z"
   },
   {
     "id": "J18.9_pneumonia_organism_e2",
@@ -933,7 +967,7 @@ export const MOCK_NUDGES: Nudge[] = [
     "soi_impact": "Closing this documentation gap could raise SOI from 2 to 3.",
     "soi_impact_ar": "قد يؤدي إغلاق هذه الفجوة التوثيقية إلى رفع درجة شدة المرض (SOI) من 2 إلى 3.",
     "status": "active",
-    "created_at": "2026-07-15T11:48:44.494Z"
+    "created_at": "2026-07-15T11:54:43.548Z"
   },
   {
     "id": "I10_htn_crisis_e4",
@@ -944,7 +978,7 @@ export const MOCK_NUDGES: Nudge[] = [
     "soi_impact": "Closing this documentation gap could raise SOI from 2 to 3.",
     "soi_impact_ar": "قد يؤدي إغلاق هذه الفجوة التوثيقية إلى رفع درجة شدة المرض (SOI) من 2 إلى 3.",
     "status": "active",
-    "created_at": "2026-07-15T10:18:44.494Z"
+    "created_at": "2026-07-15T10:24:43.548Z"
   },
   {
     "id": "E11.9_diabetes_complication_e5",
@@ -955,7 +989,7 @@ export const MOCK_NUDGES: Nudge[] = [
     "soi_impact": "Closing this documentation gap could raise SOI from 2 to 4.",
     "soi_impact_ar": "قد يؤدي إغلاق هذه الفجوة التوثيقية إلى رفع درجة شدة المرض (SOI) من 2 إلى 4.",
     "status": "active",
-    "created_at": "2026-07-15T08:48:44.494Z"
+    "created_at": "2026-07-15T08:54:43.548Z"
   },
   {
     "id": "E11.9_diabetes_complication_e2",
@@ -966,7 +1000,7 @@ export const MOCK_NUDGES: Nudge[] = [
     "soi_impact": "Closing this documentation gap could raise SOI from 2 to 4.",
     "soi_impact_ar": "قد يؤدي إغلاق هذه الفجوة التوثيقية إلى رفع درجة شدة المرض (SOI) من 2 إلى 4.",
     "status": "active",
-    "created_at": "2026-07-15T07:18:44.494Z"
+    "created_at": "2026-07-15T07:24:43.548Z"
   },
   {
     "id": "K37_appendicitis_perforation_e3",
@@ -977,7 +1011,7 @@ export const MOCK_NUDGES: Nudge[] = [
     "soi_impact": "Closing this documentation gap could raise SOI from 2 to 3.",
     "soi_impact_ar": "قد يؤدي إغلاق هذه الفجوة التوثيقية إلى رفع درجة شدة المرض (SOI) من 2 إلى 3.",
     "status": "resolved",
-    "created_at": "2026-07-15T05:48:44.494Z"
+    "created_at": "2026-07-15T05:54:43.548Z"
   }
 ];
 export const MOCK_ANALYTICS: Analytics[] = [
@@ -989,7 +1023,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.95,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T13:18:44.375Z"
+    "drg_family": "194",
+    "department_en": "Internal Medicine",
+    "department_ar": "الطب الباطني",
+    "created_at": "2026-07-15T13:24:43.479Z"
   },
   {
     "id": "a2",
@@ -999,7 +1036,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 1.6,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T12:18:44.382Z"
+    "drg_family": "190",
+    "department_en": "Cardiology",
+    "department_ar": "أمراض القلب",
+    "created_at": "2026-07-15T12:24:43.485Z"
   },
   {
     "id": "a3",
@@ -1009,7 +1049,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.8,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T11:18:44.384Z"
+    "drg_family": "261",
+    "department_en": "General Surgery",
+    "department_ar": "الجراحة العامة",
+    "created_at": "2026-07-15T11:24:43.487Z"
   },
   {
     "id": "a4",
@@ -1019,7 +1062,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.75,
     "soi": 2,
     "rom": 1,
-    "created_at": "2026-07-15T10:18:44.385Z"
+    "drg_family": "302",
+    "department_en": "Orthopedics",
+    "department_ar": "جراحة العظام",
+    "created_at": "2026-07-15T10:24:43.488Z"
   },
   {
     "id": "a5",
@@ -1029,7 +1075,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.65,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T09:18:44.386Z"
+    "drg_family": "466",
+    "department_en": "Urology",
+    "department_ar": "المسالك البولية",
+    "created_at": "2026-07-15T09:24:43.489Z"
   },
   {
     "id": "a6",
@@ -1039,7 +1088,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.6,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T08:18:44.386Z"
+    "drg_family": "201",
+    "department_en": "Cardiology",
+    "department_ar": "أمراض القلب",
+    "created_at": "2026-07-15T08:24:43.490Z"
   },
   {
     "id": "a7",
@@ -1049,7 +1101,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.95,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T07:18:44.387Z"
+    "drg_family": "194",
+    "department_en": "Internal Medicine",
+    "department_ar": "الطب الباطني",
+    "created_at": "2026-07-15T07:24:43.491Z"
   },
   {
     "id": "a8",
@@ -1059,7 +1114,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.7,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T06:18:44.388Z"
+    "drg_family": "420",
+    "department_en": "Endocrinology",
+    "department_ar": "الغدد الصماء",
+    "created_at": "2026-07-15T06:24:43.491Z"
   },
   {
     "id": "a9",
@@ -1069,7 +1127,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.6,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T05:18:44.389Z"
+    "drg_family": "201",
+    "department_en": "Cardiology",
+    "department_ar": "أمراض القلب",
+    "created_at": "2026-07-15T05:24:43.493Z"
   },
   {
     "id": "a10",
@@ -1079,7 +1140,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.7,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T04:18:44.390Z"
+    "drg_family": "420",
+    "department_en": "Endocrinology",
+    "department_ar": "الغدد الصماء",
+    "created_at": "2026-07-15T04:24:43.493Z"
   },
   {
     "id": "a11",
@@ -1089,7 +1153,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.95,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T03:18:44.391Z"
+    "drg_family": "194",
+    "department_en": "Internal Medicine",
+    "department_ar": "الطب الباطني",
+    "created_at": "2026-07-15T03:24:43.495Z"
   },
   {
     "id": "a12",
@@ -1099,7 +1166,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.7,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T02:18:44.393Z"
+    "drg_family": "420",
+    "department_en": "Endocrinology",
+    "department_ar": "الغدد الصماء",
+    "created_at": "2026-07-15T02:24:43.496Z"
   },
   {
     "id": "a13",
@@ -1109,7 +1179,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.8,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-15T01:18:44.393Z"
+    "drg_family": "261",
+    "department_en": "General Surgery",
+    "department_ar": "الجراحة العامة",
+    "created_at": "2026-07-15T01:24:43.497Z"
   },
   {
     "id": "a14",
@@ -1119,7 +1192,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 1.6,
     "soi": 2,
     "rom": 3,
-    "created_at": "2026-07-15T00:18:44.394Z"
+    "drg_family": "190",
+    "department_en": "Cardiology",
+    "department_ar": "أمراض القلب",
+    "created_at": "2026-07-15T00:24:43.497Z"
   },
   {
     "id": "a15",
@@ -1129,7 +1205,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 0.6,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-14T23:18:44.394Z"
+    "drg_family": "201",
+    "department_en": "Cardiology",
+    "department_ar": "أمراض القلب",
+    "created_at": "2026-07-14T23:24:43.498Z"
   },
   {
     "id": "a16",
@@ -1139,7 +1218,10 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 1.28,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-14T22:18:44.395Z"
+    "drg_family": "261",
+    "department_en": "General Surgery",
+    "department_ar": "الجراحة العامة",
+    "created_at": "2026-07-14T22:24:43.500Z"
   },
   {
     "id": "a17",
@@ -1149,6 +1231,9 @@ export const MOCK_ANALYTICS: Analytics[] = [
     "relative_weight": 1.2,
     "soi": 2,
     "rom": 2,
-    "created_at": "2026-07-14T21:18:44.399Z"
+    "drg_family": "220",
+    "department_en": "General Surgery",
+    "department_ar": "الجراحة العامة",
+    "created_at": "2026-07-14T21:24:43.502Z"
   }
 ];

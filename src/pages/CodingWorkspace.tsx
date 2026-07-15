@@ -8,7 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { CheckCircle, XCircle, Send, ThumbsUp, FilePlus2, Activity, HeartPulse, Scale3d, Languages, Stethoscope, Scissors } from 'lucide-react';
+import { CheckCircle, XCircle, Send, ThumbsUp, FilePlus2, Activity, HeartPulse, Scale3d, Languages, Stethoscope, Scissors, Building2 } from 'lucide-react';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
@@ -103,7 +103,13 @@ export function CodingWorkspace() {
                   <p className="font-semibold font-display">
                     {drg.subclass} · {language === 'ar' ? drg.title_ar : drg.title_en}
                   </p>
-                  <p className="text-xs text-muted-foreground">{drg.methodology}</p>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Building2 className="h-3.5 w-3.5 text-muted-foreground" />
+                    <Badge variant="outline" className="text-xs font-normal">
+                      {language === 'ar' ? drg.department_ar : drg.department_en}
+                    </Badge>
+                    <p className="text-xs text-muted-foreground">{drg.methodology}</p>
+                  </div>
                 </div>
                 <div className="flex flex-wrap items-center gap-4 md:gap-6 md:ms-auto">
                   <div className="flex items-center gap-2">

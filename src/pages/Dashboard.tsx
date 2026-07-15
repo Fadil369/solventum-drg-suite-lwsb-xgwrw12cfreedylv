@@ -6,14 +6,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Progress } from '@/components/ui/progress';
-import { Clock, FileText, Lightbulb, Percent, Scale3d } from 'lucide-react';
+import { Clock, FileText, Lightbulb, Percent, Scale3d, Building2 } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
-import type { Claim, CodingJob, Nudge } from '@shared/types';
+import type { Claim, CodingJob, Nudge, DepartmentCaseMixRow } from '@shared/types';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { motion } from 'framer-motion';
-import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, BarChart, Bar, XAxis, YAxis, CartesianGrid } from 'recharts';
 import { useLanguage } from '@/hooks/use-language';
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -77,7 +77,12 @@ export function Dashboard() {
   });
   const { data: analyticsData, isLoading: isLoadingAnalytics, error: analyticsError } = useQuery({
     queryKey: ['analytics'],
-    queryFn: () => api<{ accuracy: number; claimStats: { approved: number; rejected: number; totalAmount: number }; caseMixIndex?: number }>('/api/analytics'),
+    queryFn: () => api<{
+      accuracy: number;
+      claimStats: { approved: number; rejected: number; totalAmount: number };
+      caseMixIndex?: number;
+      departmentDistribution?: DepartmentCaseMixRow[];
+    }>('/api/analytics'),
   });
   if (analyticsError) toast.error(isRtl ? 'فشل تحميل بيانات التحليلات.' : 'Failed to load analytics data.');
   const pendingJobs = jobsData?.items?.filter(j => j.status === 'NEEDS_REVIEW').length ?? 0;
@@ -86,6 +91,11 @@ export function Dashboard() {
     { name: 'Approved', value: analyticsData?.claimStats.approved ?? 0 },
     { name: 'Rejected', value: analyticsData?.claimStats.rejected ?? 0 },
   ];
+  const departmentData = (analyticsData?.departmentDistribution ?? []).map((row) => ({
+    name: isRtl ? row.department_ar : row.department_en,
+    encounters: row.encounter_count,
+    cmi: row.case_mix_index,
+  }));
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10 lg:py-12">
@@ -176,6 +186,33 @@ export function Dashboard() {
             </CardContent>
           </Card>
         </div>
+        <Card className="mt-8">
+          <CardHeader>
+            <div className="flex items-center gap-2">
+              <Building2 className="h-5 w-5 text-muted-foreground" />
+              <CardTitle>{t('dashboard.departmentCaseMix')}</CardTitle>
+            </div>
+            <CardDescription>{t('dashboard.departmentCaseMixDesc')}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingAnalytics ? (
+              <Skeleton className="h-[280px] w-full shimmer-bg" />
+            ) : departmentData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={Math.max(280, departmentData.length * 36)}>
+                <BarChart data={departmentData} layout="vertical" margin={{ left: 24, right: 24 }}>
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                  <XAxis type="number" allowDecimals={false} />
+                  <YAxis type="category" dataKey="name" width={160} tick={{ fontSize: 12 }} />
+                  <Tooltip formatter={(value: number, key: string) => (key === 'cmi' ? value.toFixed(2) : value)} />
+                  <Legend />
+                  <Bar dataKey="encounters" name={t('dashboard.encounters')} fill="#0E5FFF" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <p className="text-sm text-muted-foreground text-center py-12">{t('dashboard.noDepartmentData')}</p>
+            )}
+          </CardContent>
+        </Card>
       </div>
       <Toaster richColors closeButton />
     </AppLayout>
