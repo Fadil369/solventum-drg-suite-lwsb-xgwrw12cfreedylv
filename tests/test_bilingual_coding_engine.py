@@ -3,6 +3,7 @@ Tests for the bilingual (AR/EN code-switching) coding engine, the
 APR-DRG grouper, and the bilingual CDI nudge rules.
 """
 import pytest
+from pydantic import ValidationError
 
 from src.backend.coding_engine import (
     CodingEngine,
@@ -14,8 +15,8 @@ from src.backend.coding_engine import (
     match_procedures,
     run_coding_engine,
 )
-from src.backend.drg_grouper import DRG_FAMILY_TABLE, compute_case_mix_index, group_encounter
-from src.backend.cdi_api import get_cdi_nudges
+from src.backend.drg_grouper import DRG_FAMILY_TABLE, compute_case_mix_index, group_encounter, round_half_up_2dp
+from src.backend.cdi_api import AnalyzeRequest, get_cdi_nudges
 from src.backend.bilingual_lexicon import BILINGUAL_LEXICON
 from src.backend.procedure_lexicon import PROCEDURE_LEXICON
 
@@ -68,6 +69,21 @@ def test_negation_excludes_match_arabic():
     matches = match_clinical_text("لا يوجد لدى المريض حمى.")
     codes = {m["entry"]["code"] for m in matches}
     assert "R50.9" not in codes
+
+
+def test_negation_excludes_match_cross_language_arabic_negator_english_term():
+    # Arabic negation phrase immediately preceding an English diagnosis term:
+    # negation/uncertainty detection must not be gated to the matched
+    # synonym's own language, or code-switched negation is silently missed.
+    matches = match_clinical_text("لا يوجد pneumonia on this patient's chest x-ray.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "J18.9" not in codes
+
+
+def test_negation_excludes_match_cross_language_english_negator_arabic_term():
+    matches = match_clinical_text("Chart reviewed, no التهاب رئوي seen on imaging.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "J18.9" not in codes
 
 
 def test_uncertainty_lowers_confidence():
@@ -334,6 +350,23 @@ def test_half_up_rounding_matches_javascript_math_round(principal_code, expected
     assert drg["soi"] >= expected_soi_at_least
 
 
+@pytest.mark.parametrize(
+    "value,expected",
+    [
+        (0.125, 0.13),  # Python's round(0.125, 2) == 0.12 (banker's rounding)
+        (0.615, 0.62),  # Python's round(0.615, 2) == 0.61
+        (0.845, 0.85),  # Python's round(0.845, 2) == 0.84
+    ],
+)
+def test_confidence_rounding_uses_half_up_not_bankers_rounding(value, expected):
+    # coding_engine.py previously used Python's built-in round(x, 2) for
+    # suggested-code confidence and confidence_score, which can diverge from
+    # the TS engine's Math.round(x * 100) / 100 half-up semantics near .5
+    # boundaries and shift automation-phase classification at the threshold.
+    assert round_half_up_2dp(value) == expected
+    assert round_half_up_2dp(value) != round(value, 2) or round(value, 2) == expected
+
+
 # --- Procedure lexicon & Medical/Surgical DRG partition ---
 def test_procedure_lexicon_has_real_breadth():
     assert len(PROCEDURE_LEXICON) >= 10
@@ -441,17 +474,10 @@ def test_elect_principal_matches_coding_engine_ranking():
 # encounter_type used to pass through unchecked and silently fall back to
 # APR-DRG methodology instead of EAPG). ---
 def test_analyze_request_rejects_invalid_encounter_type():
-    import pytest as _pytest
-    from pydantic import ValidationError
-
-    from src.backend.cdi_api import AnalyzeRequest
-
-    with _pytest.raises(ValidationError):
+    with pytest.raises(ValidationError):
         AnalyzeRequest(clinical_note="test note", encounter_type="outpatient")  # wrong case
 
 
 def test_analyze_request_accepts_valid_encounter_type():
-    from src.backend.cdi_api import AnalyzeRequest
-
     req = AnalyzeRequest(clinical_note="test note", encounter_type="OUTPATIENT")
     assert req.encounter_type == "OUTPATIENT"

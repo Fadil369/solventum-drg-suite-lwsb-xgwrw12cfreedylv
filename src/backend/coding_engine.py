@@ -20,7 +20,7 @@ from .bilingual_lexicon import (
     UNCERTAINTY_TERMS_EN,
 )
 from .procedure_lexicon import PROCEDURE_LEXICON
-from .drg_grouper import DrgResult, group_encounter
+from .drg_grouper import DrgResult, group_encounter, round_half_up_2dp
 
 ENGINE_VERSION = "2.0.0-bilingual"
 
@@ -115,11 +115,14 @@ def match_clinical_text(raw_text: str) -> List[Dict[str, Any]]:
                 if not m:
                     continue
                 context = normalized[max(0, m.start() - 40): m.start()]
-                negation_terms = NEGATION_TERMS_AR if lang == "ar" else NEGATION_TERMS_EN
-                if contains_any(context, negation_terms):
+                # Check both languages' negation/uncertainty terms regardless of
+                # the matched synonym's language: code-switched notes routinely
+                # negate a term in one language right before the diagnosis term
+                # in the other (e.g. Arabic "لا" preceding an English diagnosis
+                # name). Mirrors shared/coding-engine.ts matchClinicalText.
+                if contains_any(context, NEGATION_TERMS_EN) or contains_any(context, NEGATION_TERMS_AR):
                     continue
-                uncertainty_terms = UNCERTAINTY_TERMS_AR if lang == "ar" else UNCERTAINTY_TERMS_EN
-                uncertain = contains_any(context, uncertainty_terms)
+                uncertain = contains_any(context, UNCERTAINTY_TERMS_EN) or contains_any(context, UNCERTAINTY_TERMS_AR)
                 confidence = max(0.4, entry["base_confidence"] - 0.15) if uncertain else entry["base_confidence"]
                 matches[entry["code"]] = {
                     "entry": entry,
@@ -203,7 +206,7 @@ def run_coding_engine(text: str, age: Optional[float] = None, encounter_type: st
                 "term_en": m["matched_text"] if m["synonym_language"] == "en" else None,
                 "term_ar": m["matched_text"] if m["synonym_language"] == "ar" else None,
                 "matched_text": m["matched_text"],
-                "confidence": round(m["confidence"], 2),
+                "confidence": round_half_up_2dp(m["confidence"]),
                 "is_principal": e["code"] == principal_code,
                 "soi_weight": e["soi_weight"],
                 "rom_weight": e["rom_weight"],
@@ -225,7 +228,7 @@ def run_coding_engine(text: str, age: Optional[float] = None, encounter_type: st
         age=age,
         encounter_type=encounter_type,
     )
-    confidence_score = round(sum(c["confidence"] for c in suggested_codes) / len(suggested_codes), 2)
+    confidence_score = round_half_up_2dp(sum(c["confidence"] for c in suggested_codes) / len(suggested_codes))
     return {
         "suggested_codes": suggested_codes,
         "suggested_procedures": suggested_procedures,

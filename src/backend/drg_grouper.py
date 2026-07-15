@@ -35,11 +35,19 @@ class DrgResult(TypedDict):
     explanation: DrgExplanation
 
 
-def _round_half_up(value: float) -> int:
+def round_half_up(value: float) -> int:
     """Half-up rounding to match JavaScript's Math.round (Python's round() uses
     banker's rounding, e.g. round(0.5) == 0, which silently diverges from the
-    TypeScript grouper for any principal diagnosis with soi_weight/rom_weight == 1)."""
+    TypeScript engine/grouper for any value landing exactly on a .5 boundary).
+    Exported so coding_engine.py can use the same semantics for confidence
+    scores, not just SOI/ROM tiers."""
     return int(value + 0.5)
+
+
+def round_half_up_2dp(value: float) -> float:
+    """Half-up rounding to 2 decimal places, mirroring the TypeScript engine's
+    `Math.round(x * 100) / 100` for confidence scores."""
+    return round_half_up(value * 100) / 100
 
 
 class DrgFamilyMeta(TypedDict):
@@ -142,8 +150,8 @@ def group_encounter(
     secondary_entries = [e for e in (find_lexicon_entry(c) for c in unique_secondary) if e]
     explanation_en: List[str] = []
     explanation_ar: List[str] = []
-    principal_soi = _round_half_up(principal_entry["soi_weight"] * 0.5) if principal_entry else 0
-    principal_rom = _round_half_up(principal_entry["rom_weight"] * 0.5) if principal_entry else 0
+    principal_soi = round_half_up(principal_entry["soi_weight"] * 0.5) if principal_entry else 0
+    principal_rom = round_half_up(principal_entry["rom_weight"] * 0.5) if principal_entry else 0
     if principal_entry:
         explanation_en.append(
             f'Principal diagnosis "{principal_entry["desc_en"]}" ({principal_code}) anchors DRG family {family} '

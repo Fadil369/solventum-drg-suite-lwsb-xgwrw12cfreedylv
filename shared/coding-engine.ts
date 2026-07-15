@@ -104,11 +104,13 @@ export function matchClinicalText(rawText: string): MatchedTermInfo[] {
         if (!m) continue;
         const contextStart = Math.max(0, m.index - 40);
         const context = normalized.slice(contextStart, m.index).toLowerCase();
-        const negated =
-          group.lang === 'ar' ? containsAny(context, NEGATION_TERMS_AR) : containsAny(context, NEGATION_TERMS_EN);
+        // Check both languages' negation/uncertainty terms regardless of the
+        // matched synonym's language: code-switched notes routinely negate a
+        // term in one language right before the diagnosis term in the other
+        // (e.g. Arabic "لا" preceding an English diagnosis name).
+        const negated = containsAny(context, NEGATION_TERMS_EN) || containsAny(context, NEGATION_TERMS_AR);
         if (negated) continue;
-        const uncertain =
-          group.lang === 'ar' ? containsAny(context, UNCERTAINTY_TERMS_AR) : containsAny(context, UNCERTAINTY_TERMS_EN);
+        const uncertain = containsAny(context, UNCERTAINTY_TERMS_EN) || containsAny(context, UNCERTAINTY_TERMS_AR);
         matches.set(entry.code, {
           entry,
           matched_text: syn,
