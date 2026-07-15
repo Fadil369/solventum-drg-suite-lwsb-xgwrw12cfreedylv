@@ -2,17 +2,15 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { PlayCircle, RefreshCw, Server, Copy, Languages } from 'lucide-react';
+import { RefreshCw, Server, Languages, Activity, Building2, CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
-import type { AuditLog } from '@shared/types';
+import type { AuditLog, NphiesLiveStatus } from '@shared/types';
 import type { NphiesFieldMapping } from '@shared/nphies-field-map';
+import { HOSPITAL_BRANCHES } from '@shared/hospital-branches';
 import { format } from 'date-fns';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
@@ -27,19 +25,12 @@ export function IntegrationConsole() {
     queryKey: ['nphies-field-map'],
     queryFn: () => api<NphiesFieldMapping[]>('/api/nphies-field-map'),
   });
+  const { data: nphiesStatus, isLoading: isLoadingNphiesStatus, refetch: refetchNphiesStatus, isFetching: isRefetchingNphiesStatus } = useQuery({
+    queryKey: ['nphies-status'],
+    queryFn: () => api<NphiesLiveStatus>('/api/nphies-status'),
+    refetchInterval: 120_000,
+  });
   if (error) toast.error(isRtl ? 'فشل تحميل سجلات التكامل.' : 'Failed to load integration logs.');
-  const handleTestEndpoint = (endpoint: string) => {
-    toast.info(isRtl ? `جارٍ اختبار نقطة ${endpoint}...` : `Testing ${endpoint} endpoint...`);
-    setTimeout(() => {
-      toast.success(isRtl ? `اتصال ${endpoint} ناجح!` : `${endpoint} connection successful!`, {
-        description: isRtl ? 'تم استلام استجابة 200 OK من الخادم التجريبي.' : 'Received a 200 OK response from the mock server.',
-      });
-    }, 1000);
-  };
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    toast.success(isRtl ? 'تم النسخ إلى الحافظة!' : 'Copied to clipboard!');
-  };
   return (
     <AppLayout>
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-10 lg:py-12">
@@ -53,40 +44,74 @@ export function IntegrationConsole() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="flex items-center gap-2">
-                  <Switch id="sandbox-mode" defaultChecked />
-                  <Label htmlFor="sandbox-mode">{isRtl ? 'وضع الاختبار (Sandbox)' : 'Sandbox Mode'}</Label>
-                  <Badge variant="default">{isRtl ? 'مفعّل' : 'Enabled'}</Badge>
+                  {nphiesStatus?.nphies_auth_healthy ? (
+                    <Badge variant="default" className="gap-1"><CheckCircle2 className="h-3.5 w-3.5" /> {isRtl ? 'متصل' : 'Connected'}</Badge>
+                  ) : (
+                    <Badge variant="destructive" className="gap-1"><XCircle className="h-3.5 w-3.5" /> {isRtl ? 'مصادقة معطلة' : 'Auth Degraded'}</Badge>
+                  )}
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="client-id">OAuth Client ID</Label>
-                  <div className="flex items-center gap-2">
-                    <Input id="client-id" value="**********" readOnly className="focus:ring-2 ring-blue-500 shadow-glow" />
-                    <Button variant="outline" size="icon" onClick={() => handleCopy('mock_client_id_12345')}><Copy className="h-4 w-4" /></Button>
+                <p className="text-xs text-muted-foreground">
+                  {isRtl
+                    ? 'يتم تفويض بيانات اعتماد OAuth الفعلية إلى خدمة nphies-mirror المؤمّنة بشكل منفصل — لا يتم تخزينها أو الاطلاع عليها من هذا النظام.'
+                    : 'Real OAuth credentials are delegated to the separately-secured nphies-mirror service — this system never stores or sees them.'}
+                </p>
+                {nphiesStatus?.sync_error && (
+                  <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
+                    <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5" />
+                    <span>{nphiesStatus.sync_error}</span>
                   </div>
+                )}
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <div>{isRtl ? 'آخر مزامنة ناجحة:' : 'Last good sync:'} {nphiesStatus?.last_good_sync ? format(new Date(nphiesStatus.last_good_sync), 'PPp') : '—'}</div>
+                  <div>{isRtl ? 'آخر محاولة:' : 'Last attempt:'} {nphiesStatus?.last_sync_attempt ? format(new Date(nphiesStatus.last_sync_attempt), 'PPp') : '—'}</div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="client-secret">OAuth Client Secret</Label>
-                  <div className="flex items-center gap-2">
-                    <Input id="client-secret" type="password" value="********************" readOnly className="focus:ring-2 ring-blue-500 shadow-glow" />
-                    <Button variant="outline" size="icon" onClick={() => handleCopy('mock_client_secret_67890')}><Copy className="h-4 w-4" /></Button>
-                  </div>
-                </div>
-                <Button variant="outline" className="active:scale-95 transition-transform min-h-[44px]">
-                  <RefreshCw className="me-2 h-4 w-4" />
-                  {isRtl ? 'تحديث الرمز' : 'Refresh Token'}
+                <Button variant="outline" className="active:scale-95 transition-transform min-h-[44px]" onClick={() => refetchNphiesStatus()} disabled={isRefetchingNphiesStatus}>
+                  <RefreshCw className={`me-2 h-4 w-4 ${isRefetchingNphiesStatus ? 'animate-spin' : ''}`} />
+                  {isRtl ? 'تحديث الحالة' : 'Refresh Status'}
                 </Button>
               </CardContent>
             </Card>
             <Card className="hover:shadow-xl hover:-translate-y-1 duration-300 transition-all lg:col-span-2">
               <CardHeader>
-                <CardTitle>{isRtl ? 'فحص سلامة نقاط النهاية' : 'Endpoint Health Check'}</CardTitle>
-                <CardDescription>{isRtl ? 'تشغيل اختبارات حية على نقاط نهاية بيئة الاختبار.' : 'Run live tests against sandbox endpoints.'}</CardDescription>
+                <CardTitle className="flex items-center gap-2"><Activity className="h-5 w-5" /> {isRtl ? 'حالة الفروع الحية (NPHIES وأوراكل)' : 'Live Branch Status (NPHIES & Oracle Health)'}</CardTitle>
+                <CardDescription>
+                  {isRtl
+                    ? 'بيانات مزامنة NPHIES الفعلية وحالة بوابة أوراكل لكل فرع مستشفى، عبر nphies-mirror و oracle-bridge.'
+                    : 'Real NPHIES sync data and Oracle Health portal status per hospital branch, via nphies-mirror and oracle-bridge.'}
+                </CardDescription>
               </CardHeader>
-              <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-4">
-                <Button onClick={() => handleTestEndpoint('Claims')} className="active:scale-95 transition-transform h-[44px]"><PlayCircle className="me-2 h-4 w-4" /> {isRtl ? 'اختبار المطالبات' : 'Test Claims'}</Button>
-                <Button onClick={() => handleTestEndpoint('Pre-Auth')} className="active:scale-95 transition-transform h-[44px]"><PlayCircle className="me-2 h-4 w-4" /> {isRtl ? 'اختبار الموافقة المسبقة' : 'Test Pre-Auth'}</Button>
-                <Button onClick={() => handleTestEndpoint('Status Check')} className="active:scale-95 transition-transform h-[44px]"><PlayCircle className="me-2 h-4 w-4" /> {isRtl ? 'اختبار فحص الحالة' : 'Test Status Check'}</Button>
-                <Button onClick={() => handleTestEndpoint('Payments')} className="active:scale-95 transition-transform h-[44px]"><PlayCircle className="me-2 h-4 w-4" /> {isRtl ? 'اختبار المدفوعات' : 'Test Payments'}</Button>
+              <CardContent>
+                {isLoadingNphiesStatus ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-20 w-full shimmer-bg" />)}
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {HOSPITAL_BRANCHES.map((branch) => {
+                      const status = nphiesStatus?.branches.find((b) => b.branch === branch.id);
+                      const portalStatus = status?.oracle_portal_status ?? 'unknown';
+                      return (
+                        <div key={branch.id} className="rounded-lg border p-3 flex flex-col gap-1.5">
+                          <div className="flex items-center justify-between">
+                            <span className="font-medium text-sm flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-muted-foreground" /> {isRtl ? branch.name_ar : branch.name_en}</span>
+                            <Badge variant={portalStatus === 'online' ? 'default' : portalStatus === 'maintenance' ? 'secondary' : 'outline'} className="text-2xs">
+                              {portalStatus}
+                            </Badge>
+                          </div>
+                          <div className="text-2xs text-muted-foreground flex gap-3 flex-wrap">
+                            <span>GSS {status?.gss ?? 0}</span>
+                            <span>PA {status?.pa ?? 0}</span>
+                            <span>CoC {status?.coc ?? 0}</span>
+                            <span>SC {status?.sc ?? 0}</span>
+                          </div>
+                          {status?.stale && (
+                            <span className="text-2xs text-amber-600 dark:text-amber-400">{isRtl ? 'بيانات غير محدثة' : 'stale data'}</span>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>

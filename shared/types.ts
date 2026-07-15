@@ -33,6 +33,28 @@ export interface Encounter {
   admission_dt: string; // ISO string
   clinical_note?: string;
   provider_cr?: string;
+  branch?: HospitalBranchId;
+}
+/** The hospital network's real branch sites. */
+export type HospitalBranchId = 'riyadh' | 'madinah' | 'unaizah' | 'khamis' | 'jizan' | 'abha';
+export interface NphiesBranchStatus {
+  branch: HospitalBranchId;
+  gss: number;
+  pa: number;
+  coc: number;
+  sc: number;
+  synced_at: string | null;
+  stale: boolean;
+  oracle_portal_status: 'online' | 'maintenance' | 'offline' | 'unknown';
+}
+/** Live (best-effort) status of the real NPHIES mirror + Oracle Health bridge, proxied server-side. */
+export interface NphiesLiveStatus {
+  nphies_auth_healthy: boolean;
+  last_sync_attempt: string | null;
+  last_good_sync: string | null;
+  sync_error: string | null;
+  oracle_bridge_reachable: boolean;
+  branches: NphiesBranchStatus[];
 }
 export interface Claim {
   id: string;
@@ -98,6 +120,7 @@ export interface CodingJob {
   secondary_codes?: string[];
   drg?: DrgResult;
   detected_language?: 'en' | 'ar' | 'mixed';
+  branch?: HospitalBranchId;
 }
 export interface Nudge {
     id: string;

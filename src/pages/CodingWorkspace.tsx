@@ -13,6 +13,7 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import type { CodingJob } from '@shared/types';
+import { findBranch } from '@shared/hospital-branches';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
@@ -55,6 +56,15 @@ export function CodingWorkspace() {
       toast.error(isRtl ? 'فشل قبول الرموز.' : 'Failed to accept codes.', { description: error.message });
     },
   });
+  const prepareClaimMutation = useMutation({
+    mutationFn: (jobId: string) => api<{ status: string; message: string }>(`/api/coding-jobs/${jobId}/prepare-claim`, { method: 'POST' }),
+    onSuccess: (result) => {
+      toast.info(isRtl ? 'تم تجهيز المطالبة' : 'Claim Prepared', { description: isRtl ? 'حزمة المطالبة جاهزة. الإرسال المباشر إلى nphies غير متاح بعد — راجع وحدة التكامل.' : result.message, duration: 8000 });
+    },
+    onError: (error: Error) => {
+      toast.error(isRtl ? 'تعذر تجهيز المطالبة.' : 'Failed to prepare claim.', { description: error.message });
+    },
+  });
   const isLoading = isLoadingLatestJob && !codingJob;
   const drg = codingJob?.drg;
   const langLabelKey = codingJob?.detected_language === 'ar' ? 'lang.ar' : codingJob?.detected_language === 'mixed' ? 'lang.mixed' : 'lang.en';
@@ -67,6 +77,10 @@ export function CodingWorkspace() {
                 <h1 className="text-xl font-bold font-display">{t('coding.title')}</h1>
                 <p className="text-sm text-muted-foreground">
                     {mockEncounterDetails.patientName} (MRN: {mockEncounterDetails.mrn})
+                    {codingJob?.branch && (() => {
+                      const b = findBranch(codingJob.branch);
+                      return b ? ` · ${language === 'ar' ? b.name_ar : b.name_en}` : null;
+                    })()}
                 </p>
             </div>
             <div className="flex items-center gap-2 flex-wrap">
@@ -88,7 +102,12 @@ export function CodingWorkspace() {
                     {codingJob.status === 'AUTO_DROP' ? t('coding.codesAccepted') : t('coding.acceptAll')}
                     </Button>
                 )}
-                <Button size="sm" className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white shadow-md min-h-[44px]">
+                <Button
+                    size="sm"
+                    className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white shadow-md min-h-[44px]"
+                    onClick={() => codingJob && prepareClaimMutation.mutate(codingJob.id)}
+                    disabled={!codingJob || prepareClaimMutation.isPending}
+                >
                     <Send className="me-2 h-4 w-4 rtl-flip" />
                     {t('coding.submitClaim')}
                 </Button>

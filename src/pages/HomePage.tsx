@@ -5,12 +5,15 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LanguageToggle } from '@/components/LanguageToggle';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import { motion } from 'framer-motion';
-import type { CodingJob } from '@shared/types';
+import type { CodingJob, HospitalBranchId } from '@shared/types';
+import { HOSPITAL_BRANCHES } from '@shared/hospital-branches';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/hooks/use-language';
 const FeatureCard = ({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) => (
@@ -29,6 +32,7 @@ const FeatureCard = ({ icon, title, description }: { icon: React.ReactNode; titl
 export function HomePage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [noteText, setNoteText] = useState('');
+  const [branch, setBranch] = useState<HospitalBranchId | ''>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const navigate = useNavigate();
   const { t, isRtl } = useLanguage();
@@ -41,7 +45,7 @@ export function HomePage() {
     try {
       const response = await api<CodingJob>('/api/ingest-note', {
         method: 'POST',
-        body: JSON.stringify({ clinical_note: noteText }),
+        body: JSON.stringify({ clinical_note: noteText, branch: branch || undefined }),
       });
       toast.success(isRtl ? 'تم إدخال الملاحظة بنجاح!' : 'Note ingested successfully!', {
         description: isRtl ? 'يتم تحويلك إلى مساحة الترميز لعرض النتائج.' : 'Redirecting to the Coding Workspace to see the results.',
@@ -136,7 +140,20 @@ export function HomePage() {
               {t('home.modal.description')}
             </DialogDescription>
           </DialogHeader>
-          <div className="py-4">
+          <div className="py-4 space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="branch-select">{isRtl ? 'الفرع' : 'Hospital Branch'}</Label>
+              <Select value={branch} onValueChange={(v) => setBranch(v as HospitalBranchId)} disabled={isAnalyzing}>
+                <SelectTrigger id="branch-select">
+                  <SelectValue placeholder={isRtl ? 'اختر الفرع (اختياري)' : 'Select branch (optional)'} />
+                </SelectTrigger>
+                <SelectContent>
+                  {HOSPITAL_BRANCHES.map((b) => (
+                    <SelectItem key={b.id} value={b.id}>{isRtl ? b.name_ar : b.name_en}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <Textarea
               placeholder={t('home.modal.placeholder')}
               className={cn("min-h-[200px] text-base", isAnalyzing && "shimmer-bg")}

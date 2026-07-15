@@ -2,11 +2,12 @@ import { Hono } from "hono";
 import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity, AccountEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
-import type { CodingJob, Analytics } from "@shared/types";
+import type { CodingJob, Analytics, NphiesLiveStatus, NphiesBranchStatus, HospitalBranchId } from "@shared/types";
 import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType } from "@shared/coding-engine";
 import { generateCdiNudges } from "@shared/cdi-rules";
 import { computeCaseMixIndex, computeDepartmentDistribution } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
+import { HOSPITAL_BRANCHES } from "@shared/hospital-branches";
 import { createToken, verifyToken, verifyPassword, type TokenPayload } from "./auth";
 // API routes reachable without a valid session token. Every other /api/*
 // route requires 'Authorization: Bearer <token>' — this is a clinical
@@ -66,6 +67,44 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   app.get('/api/nphies-field-map', async (c) => {
     c.header('Cache-Control', 'public, max-age=3600');
     return ok(c, NPHIES_BILINGUAL_FIELD_MAP);
+  });
+  // GET live status of the real NPHIES mirror + Oracle Health bridge (server-side
+  // proxy to nphies-mirror.brainsait.org and oracle-bridge.brainsait.org — both
+  // already hold the real, properly-secured NPHIES/Oracle credentials, so this
+  // Worker never needs to see or store them itself). Best-effort: if either
+  // upstream is unreachable, degrade gracefully rather than fail the request.
+  app.get('/api/nphies-status', async (c) => {
+    c.header('Cache-Control', 'public, max-age=120');
+    const withTimeout = (url: string, ms = 8000) => fetch(url, { signal: AbortSignal.timeout(ms) });
+    const [summaryResult, oracleResult] = await Promise.allSettled([
+      withTimeout('https://api.brainsait.org/nphies-mirror/mirror/summary').then((r) => r.json() as Promise<any>),
+      withTimeout('https://oracle-bridge.brainsait.org/health').then((r) => r.json() as Promise<any>),
+    ]);
+    const summary = summaryResult.status === 'fulfilled' ? summaryResult.value : null;
+    const oracle = oracleResult.status === 'fulfilled' ? oracleResult.value : null;
+    const oraclePortals: Record<string, string> = oracle?.portals ?? {};
+    const branches: NphiesBranchStatus[] = HOSPITAL_BRANCHES.map((b) => {
+      const branchData = summary?.branches?.[b.id] ?? {};
+      return {
+        branch: b.id as HospitalBranchId,
+        gss: branchData.gss ?? 0,
+        pa: branchData.pa ?? 0,
+        coc: branchData.coc ?? 0,
+        sc: branchData.sc ?? 0,
+        synced_at: branchData.synced_at ?? null,
+        stale: branchData.stale ?? true,
+        oracle_portal_status: (oraclePortals[b.id] as NphiesBranchStatus['oracle_portal_status']) ?? 'unknown',
+      };
+    });
+    const status: NphiesLiveStatus = {
+      nphies_auth_healthy: summary?.auth_healthy ?? false,
+      last_sync_attempt: summary?.last_sync_attempt ?? null,
+      last_good_sync: summary?.last_good_sync ?? null,
+      sync_error: summary?.sync_error ?? (summaryResult.status === 'rejected' ? 'nphies-mirror unreachable' : null),
+      oracle_bridge_reachable: oracleResult.status === 'fulfilled',
+      branches,
+    };
+    return ok(c, status);
   });
   // --- SEEDING HELPER ---
   const ensureAllSeeds = async (env: Env) => {
@@ -146,6 +185,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       const visit_complexity: string = body?.visit_complexity || 'standard';
       const age: number | undefined = typeof body?.age === 'number' ? body.age : undefined;
       const encounter_type = normalizeEncounterType(body?.encounter_type);
+      const branch = HOSPITAL_BRANCHES.some((b) => b.id === body?.branch) ? (body.branch as HospitalBranchId) : undefined;
       if (!isStr(clinical_note)) {
         await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'note.ingestion_failed', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
         return bad(c, 'clinical_note is required');
@@ -163,6 +203,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       const newJob: CodingJob = {
         id: jobId,
         encounter_id,
+        branch,
         suggested_codes: engineResult.suggested_codes,
         suggested_procedures: engineResult.suggested_procedures,
         status,
@@ -200,7 +241,12 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       }
       await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: `note.ingested.${engineResult.detected_language}`, object_type: 'coding_job', object_id: newJob.id, occurred_at: new Date().toISOString() });
       if (status === 'SENT_TO_NPHIES') {
-        await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'claim.submitted_to_nphies', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
+        // This records the automation *policy* decision (PRD Phase 3: high-confidence,
+        // low-complexity outpatient cases are classified for autonomous submission) —
+        // it does NOT mean a claim was actually transmitted to NPHIES. No real
+        // submission gateway is wired up yet (see /api/coding-jobs/:id/prepare-claim
+        // and the Integration Console's live NPHIES status panel).
+        await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'claim.autonomous_phase_classified', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
       }
       return ok(c, newJob);
     } catch (err: any) {
@@ -217,6 +263,37 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     await job.patch({ status: 'AUTO_DROP' });
     await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'user:coder@hospital.sa', action: 'coding_job.accepted', object_type: 'coding_job', object_id: id, occurred_at: new Date().toISOString() });
     return ok(c, { id, status: 'accepted' });
+  });
+  // POST Prepare NPHIES Claim: builds the real claim payload shape and validates
+  // readiness, but does NOT fabricate a "submitted" result — no live NPHIES claim-
+  // submission gateway is wired up yet (nphies-mirror, the one real, credentialed
+  // NPHIES service found in this account, only exposes a read-only viewer/reporting
+  // API). This is the honest, intentional stopping point until that gateway exists.
+  app.post('/api/coding-jobs/:id/prepare-claim', async (c) => {
+    const id = c.req.param('id');
+    const job = new CodingJobEntity(c.env, id);
+    if (!await job.exists()) return notFound(c);
+    const state = await job.getState();
+    if (!state.principal_code || !state.drg) {
+      return bad(c, 'coding job is missing a principal diagnosis or DRG grouping');
+    }
+    const claimPayload = {
+      encounter_id: state.encounter_id,
+      branch: state.branch ?? null,
+      principal_code: state.principal_code,
+      secondary_codes: state.secondary_codes ?? [],
+      procedure_codes: (state.suggested_procedures ?? []).map((p) => p.code),
+      drg_subclass: state.drg.subclass,
+      relative_weight: state.drg.relative_weight,
+      partition: state.drg.partition,
+      prepared_at: new Date().toISOString(),
+    };
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'user:coder@hospital.sa', action: 'claim.prepared', object_type: 'coding_job', object_id: id, occurred_at: new Date().toISOString() });
+    return ok(c, {
+      status: 'PREPARED_PENDING_GATEWAY',
+      claim_payload: claimPayload,
+      message: 'Claim payload prepared. Live NPHIES submission is not yet available — the real nphies-mirror service currently only exposes read-only reporting data, and its sync has been failing (see Integration Console for live status).',
+    });
   });
   // GET Nudges
   app.get('/api/nudges', async (c) => {
