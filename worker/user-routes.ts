@@ -69,17 +69,26 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     return ok(c, NPHIES_BILINGUAL_FIELD_MAP);
   });
   // GET live status of the real NPHIES mirror + Oracle Health bridge (server-side
-  // proxy to nphies-mirror.brainsait.org and oracle-bridge.brainsait.org — both
-  // already hold the real, properly-secured NPHIES/Oracle credentials, so this
-  // Worker never needs to see or store them itself). Best-effort: if either
-  // upstream is unreachable, degrade gracefully rather than fail the request.
+  // proxy to nphies-mirror and oracle-bridge — both already hold the real,
+  // properly-secured NPHIES/Oracle credentials, so this Worker never needs to see
+  // or store them itself). Best-effort: if either upstream is unreachable, degrade
+  // gracefully rather than fail the request.
+  //
+  // nphies-mirror is fetched via its workers.dev URL rather than
+  // api.brainsait.org/nphies-mirror/*: that custom-domain path's DNS is routed
+  // through the "hayath-mcp" Cloudflare Tunnel, and Workers subrequests to a
+  // Tunnel-routed hostname on the same account fail with edge error 1033 (they
+  // don't get intercepted by the Workers Route the way a real browser/client
+  // request does). The workers.dev URL reaches the same script directly.
   app.get('/api/nphies-status', async (c) => {
     c.header('Cache-Control', 'public, max-age=120');
     const withTimeout = (url: string, ms = 8000) => fetch(url, { signal: AbortSignal.timeout(ms) });
     const [summaryResult, oracleResult] = await Promise.allSettled([
-      withTimeout('https://api.brainsait.org/nphies-mirror/mirror/summary').then((r) => r.json() as Promise<any>),
+      withTimeout('https://nphies-mirror.brainsait-fadil.workers.dev/mirror/summary').then((r) => r.json() as Promise<any>),
       withTimeout('https://oracle-bridge.brainsait.org/health').then((r) => r.json() as Promise<any>),
     ]);
+    if (summaryResult.status === 'rejected') console.error('[nphies-status] nphies-mirror fetch failed:', summaryResult.reason);
+    if (oracleResult.status === 'rejected') console.error('[nphies-status] oracle-bridge fetch failed:', oracleResult.reason);
     const summary = summaryResult.status === 'fulfilled' ? summaryResult.value : null;
     const oracle = oracleResult.status === 'fulfilled' ? oracleResult.value : null;
     const oraclePortals: Record<string, string> = oracle?.portals ?? {};
