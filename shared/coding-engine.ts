@@ -134,7 +134,13 @@ export function matchClinicalText(rawText: string): MatchedTermInfo[] {
 export interface MatchedProcedureInfo {
   entry: ProcedureEntry;
   matched_text: string;
+  /** Only meaningful when entry.sbs_laterality is set. */
+  laterality: 'unilateral' | 'bilateral' | 'unspecified';
 }
+const BILATERAL_TERMS_EN = ['bilateral', 'both sides', 'both'];
+const BILATERAL_TERMS_AR = ['ثنائي', 'كلا الجانبين', 'كلا الجهتين'];
+const UNILATERAL_TERMS_EN = ['unilateral', 'one side', 'single side'];
+const UNILATERAL_TERMS_AR = ['أحادي', 'جانب واحد'];
 /** Scans normalized clinical text for mentions of OR procedures (drives the Medical/Surgical DRG partition). */
 export function matchProcedures(rawText: string): MatchedProcedureInfo[] {
   const normalized = stripArabicDiacritics(rawText);
@@ -150,7 +156,16 @@ export function matchProcedures(rawText: string): MatchedProcedureInfo[] {
         const contextStart = Math.max(0, m.index - 40);
         const context = normalized.slice(contextStart, m.index).toLowerCase();
         if (containsAny(context, NEGATION_TERMS_EN) || containsAny(context, NEGATION_TERMS_AR)) continue;
-        matches.set(entry.code, { entry, matched_text: syn });
+        let laterality: MatchedProcedureInfo['laterality'] = 'unspecified';
+        if (entry.sbs_laterality) {
+          const lowerNormalized = normalized.toLowerCase();
+          if (containsAny(lowerNormalized, BILATERAL_TERMS_EN) || containsAny(lowerNormalized, BILATERAL_TERMS_AR)) {
+            laterality = 'bilateral';
+          } else if (containsAny(lowerNormalized, UNILATERAL_TERMS_EN) || containsAny(lowerNormalized, UNILATERAL_TERMS_AR)) {
+            laterality = 'unilateral';
+          }
+        }
+        matches.set(entry.code, { entry, matched_text: syn, laterality });
         break;
       }
     }
@@ -181,13 +196,43 @@ export interface AiClinicalSummary {
   timeline: string[];
   impression: string;
 }
+/**
+ * A single clarifying option for a RefinementQuestion. Picking one appends
+ * `answer_text` to the note before re-analysis — the exact same keyword the
+ * deterministic matcher already looks for to resolve the underlying
+ * specificity gap, so answering a question has a real, explainable effect
+ * on the re-coded result rather than being cosmetic.
+ */
+export interface RefinementOption {
+  label_en: string;
+  label_ar: string;
+  answer_text: string;
+}
+/**
+ * A single step in the "sequenced, AI-informed" clarifying-question flow:
+ * the deterministic engine (lexicon specificity_modifiers + SBS laterality
+ * requirements) identifies exactly which missing detail would change the
+ * assigned code, and phrases it as a question with concrete answer options
+ * — this is the CDI nudge concept taken one step further, from a passive
+ * "you should document this" prompt to an active question that, once
+ * answered, immediately re-runs the real coding engine on the enriched text.
+ */
+export interface RefinementQuestion {
+  id: string;
+  prompt_en: string;
+  prompt_ar: string;
+  severity: 'info' | 'warning' | 'critical';
+  options: RefinementOption[];
+}
 /** The public, unauthenticated demo preview additionally surfaces CDI nudges
- * (documentation-gap detection, PRD Pillar 3) and an AI-generated narrative
- * summary alongside the coding/grouping result, so the preview demonstrates
- * all three pillars — coding, DRG grouping, and CDI — not just the first two. */
+ * (documentation-gap detection, PRD Pillar 3), an AI-generated narrative
+ * summary, and a sequenced clarifying-question set alongside the
+ * coding/grouping result, so the preview demonstrates all three pillars —
+ * coding, DRG grouping, and CDI — not just the first two. */
 export interface DemoAnalysisResult extends CodingEngineResult {
   nudges: Nudge[];
   ai_summary: AiClinicalSummary | null;
+  questions: RefinementQuestion[];
 }
 /**
  * Elects the clinically dominant diagnosis (weighted by acuity, not just
@@ -240,12 +285,26 @@ export function runCodingEngine(rawText: string, options: CodingEngineOptions = 
     }));
   }
   const procedureMatches = matchProcedures(rawText);
-  const suggested_procedures: SuggestedProcedure[] = procedureMatches.map((p) => ({
-    code: p.entry.code,
-    desc: p.entry.desc_en,
-    desc_ar: p.entry.desc_ar,
-    matched_text: p.matched_text,
-  }));
+  const suggested_procedures: SuggestedProcedure[] = procedureMatches.map((p) => {
+    const sbsCode = p.entry.sbs_laterality
+      ? (p.laterality === 'bilateral' ? p.entry.sbs_laterality.bilateral : p.entry.sbs_laterality.unilateral)
+      : p.entry.sbs_code;
+    // sbs_desc_en is authored ending in ", unilateral" for laterality-variant
+    // entries — swap the word when the bilateral code is the one actually
+    // selected, so the description never contradicts the code shown next to it.
+    const sbsDesc = p.entry.sbs_laterality && p.laterality === 'bilateral' && p.entry.sbs_desc_en
+      ? p.entry.sbs_desc_en.replace(/unilateral$/i, 'bilateral')
+      : p.entry.sbs_desc_en;
+    return {
+      code: p.entry.code,
+      desc: p.entry.desc_en,
+      desc_ar: p.entry.desc_ar,
+      matched_text: p.matched_text,
+      sbs_code: sbsCode,
+      sbs_desc_en: sbsDesc,
+      sbs_laterality_unspecified: !!p.entry.sbs_laterality && p.laterality === 'unspecified',
+    };
+  });
   const drg = groupEncounter({
     principalCode: principal_code,
     secondaryCodes: secondary_codes,

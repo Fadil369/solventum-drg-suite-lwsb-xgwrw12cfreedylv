@@ -84,6 +84,16 @@ export interface SuggestedProcedure {
   desc: string;
   desc_ar?: string;
   matched_text?: string;
+  /** Real Saudi Billing System (SBS v3.4) billable code + description for this
+   * procedure, when a single-code mapping exists (some procedure families —
+   * e.g. tumor excision — require organ-specific SBS coding this generic
+   * lexicon entry can't resolve on its own, so these are omitted rather than
+   * mapped to a misleading code). */
+  sbs_code?: string;
+  sbs_desc_en?: string;
+  /** Set when this procedure has distinct SBS unilateral/bilateral codes and
+   * the note didn't specify which — a refinement question should resolve it. */
+  sbs_laterality_unspecified?: boolean;
 }
 // --- BRAINSAIT APR-DRG GROUPER RESULT ---
 // A deterministic, explainable implementation of the APR-DRG methodology:

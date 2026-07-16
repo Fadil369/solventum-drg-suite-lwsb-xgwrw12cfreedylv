@@ -3,6 +3,7 @@ import { useNavigate, Link } from 'react-router-dom';
 import {
   Zap, ShieldCheck, ArrowRight, Database, Scale, Stethoscope, Lightbulb, LogIn, RotateCcw, Building2,
   Activity, HeartPulse, Scale3d, Scissors, Languages, TrendingUp, CheckCircle2, Upload, Sparkles, Clock, AlertCircle,
+  HelpCircle, X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -63,13 +64,57 @@ export function HomePage() {
   const [branch, setBranch] = useState<HospitalBranchId | ''>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [demoResult, setDemoResult] = useState<DemoAnalysisResult | null>(null);
+  const [priorResult, setPriorResult] = useState<DemoAnalysisResult | null>(null);
+  const [wizardActive, setWizardActive] = useState(false);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardAnswers, setWizardAnswers] = useState<string[]>([]);
+  const [isRefining, setIsRefining] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { t, language, isRtl } = useLanguage();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const resetModal = () => {
     setDemoResult(null);
+    setPriorResult(null);
+    setWizardActive(false);
+    setWizardStep(0);
+    setWizardAnswers([]);
     setNoteText('');
+  };
+  const startRefinementWizard = () => {
+    setWizardStep(0);
+    setWizardAnswers([]);
+    setWizardActive(true);
+  };
+  const submitRefinement = async (answers: string[]) => {
+    setWizardActive(false);
+    if (answers.length === 0) return; // every question was skipped — nothing to refine
+    setIsRefining(true);
+    try {
+      const refined = await api<DemoAnalysisResult>('/api/demo/refine-note', {
+        method: 'POST',
+        body: JSON.stringify({ clinical_note: noteText, answers }),
+      });
+      setPriorResult(demoResult);
+      setDemoResult(refined);
+      toast.success(isRtl ? 'تم تحسين الترميز بناءً على إجاباتك.' : 'Coding refined based on your answers.');
+    } catch (error) {
+      toast.error(isRtl ? 'تعذر تحسين الترميز.' : 'Failed to refine coding.', {
+        description: error instanceof Error ? error.message : undefined,
+      });
+    } finally {
+      setIsRefining(false);
+    }
+  };
+  const answerWizardQuestion = (answerText: string | null) => {
+    const nextAnswers = answerText ? [...wizardAnswers, answerText] : wizardAnswers;
+    setWizardAnswers(nextAnswers);
+    const totalQuestions = demoResult?.questions.length ?? 0;
+    if (wizardStep + 1 < totalQuestions) {
+      setWizardStep(wizardStep + 1);
+    } else {
+      void submitRefinement(nextAnswers);
+    }
   };
   // Plain text only for now — real PDF/image OCR needs a dedicated parsing
   // pipeline this pass doesn't build; reading a .txt file client-side is
@@ -221,8 +266,65 @@ export function HomePage() {
         <p className="text-muted-foreground">{t('home.footer')}</p>
       </footer>
       <Dialog open={isModalOpen} onOpenChange={(open) => { setIsModalOpen(open); if (!open) resetModal(); }}>
-        <DialogContent className={cn(demoResult ? "sm:max-w-[700px]" : "sm:max-w-[625px]")}>
-          {demoResult ? (
+        <DialogContent className={cn((demoResult || wizardActive) ? "sm:max-w-[700px]" : "sm:max-w-[625px]")}>
+          {wizardActive && demoResult ? (
+            <>
+              <DialogHeader>
+                <div className="flex items-center justify-between gap-2">
+                  <DialogTitle className="text-2xl font-display">{isRtl ? 'أسئلة توضيحية' : 'Clarifying Questions'}</DialogTitle>
+                  <Button type="button" variant="ghost" size="icon" className="h-8 w-8 -mt-2 -me-2" onClick={() => setWizardActive(false)}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
+                <DialogDescription>
+                  {isRtl
+                    ? `سؤال ${wizardStep + 1} من ${demoResult.questions.length} — إجاباتك تُعاد صياغتها كتوضيح نصي ويُعاد تشغيل محرك الترميز الفعلي عليها.`
+                    : `Question ${wizardStep + 1} of ${demoResult.questions.length} — your answers are appended as clarifying text and the real coding engine re-runs on them.`}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-6 space-y-5">
+                <div className="w-full h-1.5 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-300"
+                    style={{ width: `${(wizardStep / demoResult.questions.length) * 100}%` }}
+                  />
+                </div>
+                {demoResult.questions[wizardStep] && (
+                  <>
+                    <div className="flex items-start gap-2">
+                      <Badge
+                        variant={demoResult.questions[wizardStep].severity === 'critical' ? 'destructive' : demoResult.questions[wizardStep].severity === 'warning' ? 'default' : 'secondary'}
+                        className="text-2xs shrink-0 mt-0.5"
+                      >
+                        {demoResult.questions[wizardStep].severity}
+                      </Badge>
+                      <p className="text-base" dir="auto">
+                        {isRtl ? demoResult.questions[wizardStep].prompt_ar : demoResult.questions[wizardStep].prompt_en}
+                      </p>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {demoResult.questions[wizardStep].options.map((opt) => (
+                        <Button
+                          key={opt.answer_text}
+                          type="button"
+                          variant="outline"
+                          className="justify-start h-auto py-3 text-start min-h-[44px]"
+                          onClick={() => answerWizardQuestion(opt.answer_text)}
+                        >
+                          {isRtl ? opt.label_ar : opt.label_en}
+                        </Button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button type="button" variant="ghost" onClick={() => answerWizardQuestion(null)} className="min-h-[44px]">
+                  {isRtl ? 'تخطي هذا السؤال' : 'Skip this question'}
+                </Button>
+              </DialogFooter>
+            </>
+          ) : demoResult ? (
             <>
               <DialogHeader>
                 <DialogTitle className="text-2xl font-display">{isRtl ? 'معاينة النتائج (وضع العرض التجريبي)' : 'Preview Results (Demo Mode)'}</DialogTitle>
@@ -291,6 +393,61 @@ export function HomePage() {
                     </Accordion>
                   )}
                 </div>
+                {priorResult && (
+                  <div className="rounded-lg border border-green-500/30 bg-green-500/5 p-3 text-sm flex items-start gap-2">
+                    <TrendingUp className="h-4 w-4 text-green-600 shrink-0 mt-0.5" />
+                    <span>
+                      {isRtl ? 'تم تحسين الترميز بناءً على إجاباتك: ' : 'Coding refined based on your answers: '}
+                      {isRtl ? 'الثقة' : 'confidence'} {(priorResult.confidence_score * 100).toFixed(0)}% → {(demoResult.confidence_score * 100).toFixed(0)}%
+                      {priorResult.drg.subclass !== demoResult.drg.subclass && ` · DRG ${priorResult.drg.subclass} → ${demoResult.drg.subclass}`}
+                    </span>
+                  </div>
+                )}
+                {demoResult.questions.length > 0 && (
+                  <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div className="flex items-start gap-2">
+                      <HelpCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <p className="text-sm font-medium">
+                          {isRtl
+                            ? `${demoResult.questions.length} سؤال توضيحي يمكنه تحسين دقة الترميز`
+                            : `${demoResult.questions.length} clarifying question${demoResult.questions.length > 1 ? 's' : ''} could improve coding accuracy`}
+                        </p>
+                        <p className="text-xs text-muted-foreground">
+                          {isRtl ? 'أجب عليها لإعادة حساب ترميز أكثر دقة.' : 'Answer them to recalculate a more specific code.'}
+                        </p>
+                      </div>
+                    </div>
+                    <Button size="sm" onClick={startRefinementWizard} disabled={isRefining} className="shrink-0 min-h-[44px]">
+                      {isRefining ? t('home.modal.analyzing') : (isRtl ? 'ابدأ التوضيح' : 'Refine This Coding')}
+                      {!isRefining && <ArrowRight className="ms-2 h-4 w-4 rtl-flip" />}
+                    </Button>
+                  </div>
+                )}
+                {demoResult.suggested_procedures.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium flex items-center gap-1.5"><Scissors className="h-4 w-4" />{isRtl ? 'الإجراءات المكتشفة (رموز SBS)' : 'Detected Procedures (SBS Codes)'}</p>
+                    {demoResult.suggested_procedures.map((p) => (
+                      <div key={p.code} className="rounded-md border px-3 py-2 text-sm space-y-1">
+                        <div className="flex items-center justify-between gap-2">
+                          <span dir="auto">{language === 'ar' && p.desc_ar ? p.desc_ar : p.desc}</span>
+                          {p.sbs_code ? (
+                            <Badge variant="outline" className="font-mono text-2xs shrink-0">SBS {p.sbs_code}</Badge>
+                          ) : (
+                            <Badge variant="secondary" className="text-2xs shrink-0">{isRtl ? 'يتطلب تحديد الموقع' : 'needs site specificity'}</Badge>
+                          )}
+                        </div>
+                        {p.sbs_desc_en && <p className="text-xs text-muted-foreground">{p.sbs_desc_en}</p>}
+                        {p.sbs_laterality_unspecified && (
+                          <p className="text-xs text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            {isRtl ? 'يلزم تحديد الجانبية (أحادي/ثنائي) لاختيار رمز SBS الصحيح' : 'Laterality (unilateral/bilateral) not yet specified for the correct SBS code'}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
                 {demoResult.ai_summary && (
                   <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 dark:bg-violet-500/10 p-4 space-y-3">
                     <p className="text-sm font-medium flex items-center gap-1.5 text-violet-700 dark:text-violet-300">

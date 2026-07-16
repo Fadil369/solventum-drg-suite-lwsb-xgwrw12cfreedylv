@@ -10,6 +10,7 @@
  * the encounter.
  */
 import { matchClinicalText, matchProcedures, containsAny, stripArabicDiacritics, electPrincipal } from './coding-engine';
+import type { RefinementQuestion, RefinementOption } from './coding-engine';
 import { groupEncounter } from './drg-grouper';
 import type { Nudge } from './types';
 export interface CdiOptions {
@@ -66,4 +67,59 @@ export function generateCdiNudges(text: string, encounterId: string, options: Cd
     }
   }
   return nudges;
+}
+/**
+ * Builds the sequenced clarifying-question set for the interactive
+ * refinement flow (public demo "Refine This Coding" wizard). Two sources of
+ * questions, both derived from the same deterministic engine used for the
+ * actual coding — no separate free-form question-generation model, so every
+ * question is guaranteed to correspond to a real, resolvable gap:
+ *
+ * 1. Diagnosis specificity gaps — the same lexicon `specificity_modifiers`
+ *    that drive generateCdiNudges(), reframed with concrete answer options
+ *    instead of a passive documentation prompt.
+ * 2. Procedure laterality gaps — a detected procedure whose SBS code
+ *    differs by unilateral vs. bilateral, where the note doesn't say which.
+ */
+export function generateRefinementQuestions(text: string, options: CdiOptions = {}): RefinementQuestion[] {
+  const matches = matchClinicalText(text);
+  const normalizedText = stripArabicDiacritics(text);
+  const questions: RefinementQuestion[] = [];
+  for (const { entry } of matches) {
+    for (const modifier of entry.specificity_modifiers ?? []) {
+      const resolvedEn = containsAny(normalizedText, modifier.keywords_en);
+      const resolvedAr = containsAny(normalizedText, modifier.keywords_ar);
+      if (resolvedEn || resolvedAr) continue;
+      const optionCount = Math.min(4, modifier.keywords_en.length);
+      const opts: RefinementOption[] = [];
+      for (let i = 0; i < optionCount; i++) {
+        opts.push({
+          label_en: modifier.keywords_en[i].replace(/\b\w/g, (c) => c.toUpperCase()),
+          label_ar: modifier.keywords_ar[i] ?? modifier.keywords_en[i],
+          answer_text: modifier.keywords_en[i],
+        });
+      }
+      questions.push({
+        id: `${entry.code}_${modifier.id}`,
+        prompt_en: modifier.prompt_en,
+        prompt_ar: modifier.prompt_ar,
+        severity: modifier.severity,
+        options: opts,
+      });
+    }
+  }
+  for (const { entry, laterality } of matchProcedures(text)) {
+    if (!entry.sbs_laterality || laterality !== 'unspecified') continue;
+    questions.push({
+      id: `${entry.code}_laterality`,
+      prompt_en: `Was "${entry.desc_en}" performed on one side (unilateral) or both sides (bilateral)? SBS assigns a different billing code to each.`,
+      prompt_ar: `هل تم إجراء "${entry.desc_ar}" من جانب واحد (أحادي) أم من كلا الجانبين (ثنائي)؟ يخصص نظام SBS رمز فوترة مختلف لكل حالة.`,
+      severity: 'warning',
+      options: [
+        { label_en: 'Unilateral (one side)', label_ar: 'أحادي (جانب واحد)', answer_text: 'unilateral' },
+        { label_en: 'Bilateral (both sides)', label_ar: 'ثنائي (كلا الجانبين)', answer_text: 'bilateral' },
+      ],
+    });
+  }
+  return questions;
 }

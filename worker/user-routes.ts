@@ -4,7 +4,7 @@ import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntit
 import { ok, bad, notFound, isStr } from './core-utils';
 import type { CodingJob, Analytics, NphiesLiveStatus, NphiesBranchStatus, HospitalBranchId } from "@shared/types";
 import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType, type DemoAnalysisResult, type AiClinicalSummary } from "@shared/coding-engine";
-import { generateCdiNudges } from "@shared/cdi-rules";
+import { generateCdiNudges, generateRefinementQuestions } from "@shared/cdi-rules";
 import { computeCaseMixIndex, computeDepartmentDistribution } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
 import { HOSPITAL_BRANCHES } from "@shared/hospital-branches";
@@ -17,7 +17,7 @@ import { createToken, verifyToken, verifyPassword, type TokenPayload } from "./a
 // it is pure computation over the caller's own input with no read or write
 // to any stored entity (no patient, encounter, or coding-job record is ever
 // touched), so it carries none of the risk that rule guards against.
-const PUBLIC_API_PATHS = new Set(['/api/auth/login', '/api/health', '/api/client-errors', '/api/demo/analyze-note']);
+const PUBLIC_API_PATHS = new Set(['/api/auth/login', '/api/health', '/api/client-errors', '/api/demo/analyze-note', '/api/demo/refine-note']);
 function getAuthSecret(env: Env): string {
   const secret = (env as unknown as { AUTH_SECRET?: string }).AUTH_SECRET;
   if (!secret) throw new Error('AUTH_SECRET is not configured on this Worker (wrangler secret put AUTH_SECRET)');
@@ -145,6 +145,19 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   // signed in; signed-in users get the full persisted workflow via
   // /api/ingest-note instead. Length-capped since it's unauthenticated.
   const DEMO_NOTE_MAX_LENGTH = 4000;
+  // Shared by /api/demo/analyze-note and /api/demo/refine-note: runs the full
+  // public-demo pipeline (deterministic coding/DRG, CDI nudges, sequenced
+  // clarifying questions, best-effort AI narrative) over whatever text is
+  // passed in — the refine flow just calls this again on note text enriched
+  // with the physician's question answers, so "answering a question"
+  // literally re-runs the same real engine rather than faking an update.
+  async function runDemoAnalysis(clinical_note: string, env: Env): Promise<DemoAnalysisResult> {
+    const engineResult = runCodingEngine(clinical_note);
+    const nudges = generateCdiNudges(clinical_note, 'demo');
+    const questions = generateRefinementQuestions(clinical_note);
+    const ai_summary = await generateAiClinicalSummary(clinical_note, env);
+    return { ...engineResult, nudges, questions, ai_summary };
+  }
   app.post('/api/demo/analyze-note', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const clinical_note: string = body?.clinical_note;
@@ -153,19 +166,46 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       return bad(c, `clinical_note must be ${DEMO_NOTE_MAX_LENGTH} characters or fewer for the public demo — sign in for the full workspace`);
     }
     try {
-      const engineResult = runCodingEngine(clinical_note);
-      // Same lexicon pass also drives CDI nudges (documentation-gap detection),
-      // so the public preview demonstrates all three PRD pillars — coding, DRG
-      // grouping, and CDI — not just the first two. 'demo' as the encounter id
-      // is safe here: nudges are never persisted, it only shapes the (also
-      // ephemeral) nudge id string.
-      const nudges = generateCdiNudges(clinical_note, 'demo');
-      const ai_summary = await generateAiClinicalSummary(clinical_note, c.env);
-      const result: DemoAnalysisResult = { ...engineResult, nudges, ai_summary };
-      return ok(c, result);
+      // 'demo' as the encounter id is safe here: nudges/questions are never
+      // persisted, it only shapes their (also ephemeral) id strings.
+      return ok(c, await runDemoAnalysis(clinical_note, c.env));
     } catch (err) {
       console.error('demo/analyze-note error', err);
       return bad(c, 'failed to analyze note');
+    }
+  });
+  // POST public, unauthenticated refinement step: takes the original note
+  // plus free-text answers collected from the sequenced clarifying-question
+  // wizard, appends them as an explicit clarification block, and re-runs the
+  // exact same real pipeline — this is the "sequenced informed questions...
+  // that build the acquired code" flow. No separate answer-interpretation
+  // model: the answers are the literal keywords the deterministic engine
+  // already looks for, so the effect on the re-coded result is direct and
+  // explainable, not a black-box adjustment.
+  app.post('/api/demo/refine-note', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const clinical_note: string = body?.clinical_note;
+    const answers: unknown = body?.answers;
+    if (!isStr(clinical_note) || !clinical_note.trim()) return bad(c, 'clinical_note is required');
+    if (clinical_note.length > DEMO_NOTE_MAX_LENGTH) {
+      return bad(c, `clinical_note must be ${DEMO_NOTE_MAX_LENGTH} characters or fewer for the public demo — sign in for the full workspace`);
+    }
+    if (!Array.isArray(answers) || answers.some((a) => typeof a !== 'string')) {
+      return bad(c, 'answers must be an array of strings');
+    }
+    const cleanAnswers = (answers as string[]).map((a) => a.trim()).filter(Boolean).slice(0, 20);
+    if (cleanAnswers.length === 0) return bad(c, 'at least one answer is required');
+    const enrichedNote = cleanAnswers.length > 0
+      ? `${clinical_note}\n\nAdditional clarification: ${cleanAnswers.join('. ')}.`
+      : clinical_note;
+    if (enrichedNote.length > DEMO_NOTE_MAX_LENGTH * 2) {
+      return bad(c, 'combined note and answers are too long for the public demo');
+    }
+    try {
+      return ok(c, await runDemoAnalysis(enrichedNote, c.env));
+    } catch (err) {
+      console.error('demo/refine-note error', err);
+      return bad(c, 'failed to refine analysis');
     }
   });
   // GET the bilingual nphies/Etimad field mapping table (PRD Section 4.0)
