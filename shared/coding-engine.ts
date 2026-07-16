@@ -25,7 +25,8 @@ import {
 } from './bilingual-lexicon';
 import { PROCEDURE_LEXICON, ProcedureEntry } from './procedure-lexicon';
 import { groupEncounter } from './drg-grouper';
-import type { CodingJob, SuggestedCode, SuggestedProcedure, DrgResult, Nudge } from './types';
+import type { CodingJob, SuggestedCode, SuggestedProcedure, DrgResult, Nudge, AiClinicalSummary, RefinementQuestion } from './types';
+export type { AiClinicalSummary, RefinementOption, RefinementQuestion } from './types';
 export const ENGINE_VERSION = '2.0.0-bilingual';
 export function stripArabicDiacritics(text: string): string {
   return text.replace(/[ً-ْٰـ]/g, '');
@@ -184,45 +185,6 @@ export interface CodingEngineResult {
   drg: DrgResult;
   detected_language: 'en' | 'ar' | 'mixed';
   confidence_score: number;
-}
-/** AI-generated (Workers AI), best-effort clinical narrative: a chronological
- * event timeline and a plain-language diagnostic impression, both grounded
- * strictly in the submitted text. This is an assistive summary, not a
- * diagnosis — always shown alongside, and subordinate to, the deterministic
- * coding/DRG result above, which remains the explainable, reproducible
- * source of truth. null when generation failed or was skipped; the rest of
- * the analysis is never blocked by this being unavailable. */
-export interface AiClinicalSummary {
-  timeline: string[];
-  impression: string;
-}
-/**
- * A single clarifying option for a RefinementQuestion. Picking one appends
- * `answer_text` to the note before re-analysis — the exact same keyword the
- * deterministic matcher already looks for to resolve the underlying
- * specificity gap, so answering a question has a real, explainable effect
- * on the re-coded result rather than being cosmetic.
- */
-export interface RefinementOption {
-  label_en: string;
-  label_ar: string;
-  answer_text: string;
-}
-/**
- * A single step in the "sequenced, AI-informed" clarifying-question flow:
- * the deterministic engine (lexicon specificity_modifiers + SBS laterality
- * requirements) identifies exactly which missing detail would change the
- * assigned code, and phrases it as a question with concrete answer options
- * — this is the CDI nudge concept taken one step further, from a passive
- * "you should document this" prompt to an active question that, once
- * answered, immediately re-runs the real coding engine on the enriched text.
- */
-export interface RefinementQuestion {
-  id: string;
-  prompt_en: string;
-  prompt_ar: string;
-  severity: 'info' | 'warning' | 'critical';
-  options: RefinementOption[];
 }
 /** The public, unauthenticated demo preview additionally surfaces CDI nudges
  * (documentation-gap detection, PRD Pillar 3), an AI-generated narrative

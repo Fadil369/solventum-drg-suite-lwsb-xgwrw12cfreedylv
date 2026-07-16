@@ -5,7 +5,7 @@ import { ok, bad, notFound, isStr } from './core-utils';
 import type { CodingJob, Analytics, NphiesLiveStatus, NphiesBranchStatus, HospitalBranchId } from "@shared/types";
 import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType, type DemoAnalysisResult, type AiClinicalSummary } from "@shared/coding-engine";
 import { generateCdiNudges, generateRefinementQuestions } from "@shared/cdi-rules";
-import { computeCaseMixIndex, computeDepartmentDistribution } from "@shared/drg-grouper";
+import { computeCaseMixIndex, computeDepartmentDistribution, groupEncounter } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
 import { HOSPITAL_BRANCHES } from "@shared/hospital-branches";
 import { createToken, verifyToken, verifyPassword, type TokenPayload } from "./auth";
@@ -371,8 +371,15 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       }
       const engineResult = runCodingEngine(clinical_note, { age, encounterType: encounter_type });
       const { phase, status } = classifyAutomationPhase(engineResult.confidence_score, visit_complexity);
-      const encounters = await EncounterEntity.list(c.env, null, 1);
+      // Encounter lookup and the AI summary call are independent — run them
+      // concurrently rather than paying the AI call's latency (~1-3s) on top
+      // of a sequential DB read.
+      const [encounters, ai_summary] = await Promise.all([
+        EncounterEntity.list(c.env, null, 1),
+        generateAiClinicalSummary(clinical_note, c.env),
+      ]);
       const encounter_id = encounters.items.length > 0 ? encounters.items[0].id : 'e_mock_fallback';
+      const questions = generateRefinementQuestions(clinical_note, { age, encounterType: encounter_type });
       const newJob: CodingJob = {
         id: jobId,
         encounter_id,
@@ -388,6 +395,8 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         secondary_codes: engineResult.secondary_codes,
         drg: engineResult.drg,
         detected_language: engineResult.detected_language,
+        ai_summary,
+        questions,
       };
       const newAnalytics: Analytics = {
         id: crypto.randomUUID(),
@@ -447,6 +456,107 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     await job.patch({ status: 'AUTO_DROP' });
     await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'user:coder@hospital.sa', action: 'coding_job.accepted', object_type: 'coding_job', object_id: id, occurred_at: new Date().toISOString() });
     return ok(c, { id, status: 'accepted' });
+  });
+  // POST confirm a single suggested code on a job — the per-row checkmark in
+  // the Coding Workspace previously had no handler at all.
+  app.post('/api/coding-jobs/:id/codes/:code/accept', async (c) => {
+    const id = c.req.param('id');
+    const code = c.req.param('code');
+    const job = new CodingJobEntity(c.env, id);
+    if (!(await job.exists())) return notFound(c);
+    const state = await job.getState();
+    if (!state.suggested_codes.some((sc) => sc.code === code)) return notFound(c, 'code not found on this job');
+    const suggested_codes = state.suggested_codes.map((sc) => (sc.code === code ? { ...sc, confirmed: true } : sc));
+    await job.patch({ suggested_codes });
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'user:coder@hospital.sa', action: 'coding_job.code_confirmed', object_type: 'coding_job', object_id: id, occurred_at: new Date().toISOString() });
+    return ok(c, { id, code, confirmed: true });
+  });
+  // POST reject a single suggested code — removes it from the job and, if it
+  // was the principal diagnosis, re-elects a new principal from what's left
+  // and re-runs the real DRG grouper (same ranking electPrincipal uses), so
+  // rejecting a false-positive code has a real, visible effect on the DRG
+  // rather than just hiding a table row.
+  app.post('/api/coding-jobs/:id/codes/:code/reject', async (c) => {
+    const id = c.req.param('id');
+    const code = c.req.param('code');
+    const job = new CodingJobEntity(c.env, id);
+    if (!(await job.exists())) return notFound(c);
+    const state = await job.getState();
+    const remaining = state.suggested_codes.filter((sc) => sc.code !== code);
+    if (remaining.length === state.suggested_codes.length) return notFound(c, 'code not found on this job');
+    if (remaining.length === 0) return bad(c, 'cannot reject the only remaining code on a job');
+    let principal_code = state.principal_code;
+    let drg = state.drg;
+    if (state.principal_code === code) {
+      const ranked = [...remaining].sort((a, b) => {
+        const scoreA = a.confidence * (1 + (a.soi_weight ?? 0) + (a.rom_weight ?? 0));
+        const scoreB = b.confidence * (1 + (b.soi_weight ?? 0) + (b.rom_weight ?? 0));
+        return scoreB - scoreA;
+      });
+      principal_code = ranked[0].code;
+    }
+    if (principal_code) {
+      drg = groupEncounter({
+        principalCode: principal_code,
+        secondaryCodes: remaining.filter((sc) => sc.code !== principal_code).map((sc) => sc.code),
+        procedureCodes: (state.suggested_procedures ?? []).map((p) => p.code),
+      });
+    }
+    const suggested_codes = remaining.map((sc) => ({ ...sc, is_principal: sc.code === principal_code }));
+    const secondary_codes = (state.secondary_codes ?? []).filter((sc) => sc !== code);
+    await job.patch({ suggested_codes, secondary_codes, principal_code, drg });
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'user:coder@hospital.sa', action: 'coding_job.code_rejected', object_type: 'coding_job', object_id: id, occurred_at: new Date().toISOString() });
+    return ok(c, { id, code, rejected: true, principal_code, drg });
+  });
+  // POST the authenticated, persisted equivalent of the public demo's
+  // refine-note: appends the coder's answers to the outstanding
+  // RefinementQuestions as clarifying text, re-runs the real engine on the
+  // enriched note, and PATCHES the job in place — the persisted record
+  // itself gets more specific, not just a throwaway preview.
+  app.post('/api/coding-jobs/:id/refine', async (c) => {
+    const id = c.req.param('id');
+    const job = new CodingJobEntity(c.env, id);
+    if (!(await job.exists())) return notFound(c);
+    const state = await job.getState();
+    if (!isStr(state.source_text) || !state.source_text.trim()) return bad(c, 'this coding job has no source text to refine');
+    const body = await c.req.json().catch(() => ({}));
+    const answers: unknown = body?.answers;
+    if (!Array.isArray(answers) || answers.some((a) => typeof a !== 'string')) return bad(c, 'answers must be an array of strings');
+    const cleanAnswers = (answers as string[]).map((a) => a.trim()).filter(Boolean).slice(0, 20);
+    if (cleanAnswers.length === 0) return bad(c, 'at least one answer is required');
+    const enrichedNote = `${state.source_text}\n\nAdditional clarification: ${cleanAnswers.join('. ')}.`;
+    const engineResult = runCodingEngine(enrichedNote);
+    const { phase, status } = classifyAutomationPhase(engineResult.confidence_score, 'standard');
+    const [nudges, ai_summary] = await Promise.all([
+      Promise.resolve(generateCdiNudges(enrichedNote, state.encounter_id)),
+      generateAiClinicalSummary(enrichedNote, c.env),
+    ]);
+    const questions = generateRefinementQuestions(enrichedNote);
+    const updated: Partial<CodingJob> = {
+      source_text: enrichedNote,
+      suggested_codes: engineResult.suggested_codes,
+      suggested_procedures: engineResult.suggested_procedures,
+      principal_code: engineResult.principal_code,
+      secondary_codes: engineResult.secondary_codes,
+      drg: engineResult.drg,
+      confidence_score: engineResult.confidence_score,
+      detected_language: engineResult.detected_language,
+      ai_summary,
+      questions,
+      // A job already accepted/dropped by a coder keeps that status — refining
+      // it shouldn't silently revert an explicit human decision.
+      ...(state.status === 'AUTO_DROP' ? {} : { status, phase }),
+    };
+    await job.patch(updated);
+    await Promise.all(
+      nudges.map(async (nudge) => {
+        const existing = new NudgeEntity(c.env, nudge.id);
+        if (!(await existing.exists())) await NudgeEntity.create(c.env, nudge);
+      })
+    );
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'user:coder@hospital.sa', action: 'coding_job.refined', object_type: 'coding_job', object_id: id, occurred_at: new Date().toISOString() });
+    const finalState = await job.getState();
+    return ok(c, finalState);
   });
   // POST Prepare NPHIES Claim: builds the real claim payload shape and validates
   // readiness, but does NOT fabricate a "submitted" result — no live NPHIES claim-

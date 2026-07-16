@@ -78,6 +78,9 @@ export interface SuggestedCode {
   is_principal?: boolean;
   soi_weight?: number; // contribution to Severity of Illness (0-3)
   rom_weight?: number; // contribution to Risk of Mortality (0-3)
+  /** Coder explicitly confirmed this individual code (distinct from
+   * accepting the whole job) — set via POST /coding-jobs/:id/codes/:code/accept. */
+  confirmed?: boolean;
 }
 export interface SuggestedProcedure {
   code: string;
@@ -94,6 +97,45 @@ export interface SuggestedProcedure {
   /** Set when this procedure has distinct SBS unilateral/bilateral codes and
    * the note didn't specify which — a refinement question should resolve it. */
   sbs_laterality_unspecified?: boolean;
+}
+/** AI-generated (Workers AI), best-effort clinical narrative: a chronological
+ * event timeline and a plain-language diagnostic impression, both grounded
+ * strictly in the submitted text. This is an assistive summary, not a
+ * diagnosis — always shown alongside, and subordinate to, the deterministic
+ * coding/DRG result, which remains the explainable, reproducible source of
+ * truth. null when generation failed or was skipped; the rest of the
+ * analysis is never blocked by this being unavailable. */
+export interface AiClinicalSummary {
+  timeline: string[];
+  impression: string;
+}
+/**
+ * A single clarifying option for a RefinementQuestion. Picking one appends
+ * `answer_text` to the note before re-analysis — the exact same keyword the
+ * deterministic matcher already looks for to resolve the underlying
+ * specificity gap, so answering a question has a real, explainable effect
+ * on the re-coded result rather than being cosmetic.
+ */
+export interface RefinementOption {
+  label_en: string;
+  label_ar: string;
+  answer_text: string;
+}
+/**
+ * A single step in the "sequenced, AI-informed" clarifying-question flow:
+ * the deterministic engine (lexicon specificity_modifiers + SBS laterality
+ * requirements) identifies exactly which missing detail would change the
+ * assigned code, and phrases it as a question with concrete answer options
+ * — this is the CDI nudge concept taken one step further, from a passive
+ * "you should document this" prompt to an active question that, once
+ * answered, immediately re-runs the real coding engine on the enriched text.
+ */
+export interface RefinementQuestion {
+  id: string;
+  prompt_en: string;
+  prompt_ar: string;
+  severity: 'info' | 'warning' | 'critical';
+  options: RefinementOption[];
 }
 // --- BRAINSAIT APR-DRG GROUPER RESULT ---
 // A deterministic, explainable implementation of the APR-DRG methodology:
@@ -134,6 +176,12 @@ export interface CodingJob {
   drg?: DrgResult;
   detected_language?: 'en' | 'ar' | 'mixed';
   branch?: HospitalBranchId;
+  /** Best-effort AI narrative computed alongside the deterministic result at
+   * ingest time (and refreshed on refine) — see AiClinicalSummary. */
+  ai_summary?: AiClinicalSummary | null;
+  /** Outstanding specificity gaps a coder can resolve via the sequenced
+   * refinement flow (POST /coding-jobs/:id/refine) — see RefinementQuestion. */
+  questions?: RefinementQuestion[];
 }
 export interface Nudge {
     id: string;
