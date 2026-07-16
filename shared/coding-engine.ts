@@ -25,7 +25,7 @@ import {
 } from './bilingual-lexicon';
 import { PROCEDURE_LEXICON, ProcedureEntry } from './procedure-lexicon';
 import { groupEncounter } from './drg-grouper';
-import type { CodingJob, SuggestedCode, SuggestedProcedure, DrgResult } from './types';
+import type { CodingJob, SuggestedCode, SuggestedProcedure, DrgResult, Nudge } from './types';
 export const ENGINE_VERSION = '2.0.0-bilingual';
 export function stripArabicDiacritics(text: string): string {
   return text.replace(/[ً-ْٰـ]/g, '');
@@ -169,6 +169,13 @@ export interface CodingEngineResult {
   drg: DrgResult;
   detected_language: 'en' | 'ar' | 'mixed';
   confidence_score: number;
+}
+/** The public, unauthenticated demo preview additionally surfaces CDI nudges
+ * (documentation-gap detection, PRD Pillar 3) alongside the coding/grouping
+ * result, so the preview demonstrates all three pillars — coding, DRG
+ * grouping, and CDI — not just the first two. */
+export interface DemoAnalysisResult extends CodingEngineResult {
+  nudges: Nudge[];
 }
 /**
  * Elects the clinically dominant diagnosis (weighted by acuity, not just

@@ -3,7 +3,7 @@ import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity, AccountEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
 import type { CodingJob, Analytics, NphiesLiveStatus, NphiesBranchStatus, HospitalBranchId } from "@shared/types";
-import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType } from "@shared/coding-engine";
+import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType, type DemoAnalysisResult } from "@shared/coding-engine";
 import { generateCdiNudges } from "@shared/cdi-rules";
 import { computeCaseMixIndex, computeDepartmentDistribution } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
@@ -83,7 +83,14 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     }
     try {
       const engineResult = runCodingEngine(clinical_note);
-      return ok(c, engineResult);
+      // Same lexicon pass also drives CDI nudges (documentation-gap detection),
+      // so the public preview demonstrates all three PRD pillars — coding, DRG
+      // grouping, and CDI — not just the first two. 'demo' as the encounter id
+      // is safe here: nudges are never persisted, it only shapes the (also
+      // ephemeral) nudge id string.
+      const nudges = generateCdiNudges(clinical_note, 'demo');
+      const result: DemoAnalysisResult = { ...engineResult, nudges };
+      return ok(c, result);
     } catch (err) {
       console.error('demo/analyze-note error', err);
       return bad(c, 'failed to analyze note');

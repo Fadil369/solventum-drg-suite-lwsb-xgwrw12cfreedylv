@@ -1,6 +1,9 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Zap, ShieldCheck, ArrowRight, Database, Scale, Stethoscope, Lightbulb, LogIn, RotateCcw, Building2 } from 'lucide-react';
+import {
+  Zap, ShieldCheck, ArrowRight, Database, Scale, Stethoscope, Lightbulb, LogIn, RotateCcw, Building2,
+  Activity, HeartPulse, Scale3d, Scissors, Languages, TrendingUp, CheckCircle2,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
@@ -8,17 +11,39 @@ import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LanguageToggle } from '@/components/LanguageToggle';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import { motion } from 'framer-motion';
 import type { CodingJob, HospitalBranchId } from '@shared/types';
-import type { CodingEngineResult } from '@shared/coding-engine';
+import type { DemoAnalysisResult } from '@shared/coding-engine';
 import { HOSPITAL_BRANCHES } from '@shared/hospital-branches';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/hooks/use-language';
 import { useAuth } from '@/hooks/use-auth';
+const DEMO_NOTE_MAX_LENGTH = 4000;
+// Three bilingual samples chosen to showcase the flagship differentiator —
+// same-sentence Arabic/English code-switching — without requiring a visitor
+// to have a real clinical note handy to try the public demo.
+const EXAMPLE_NOTES: { label_en: string; label_ar: string; text: string }[] = [
+  {
+    label_en: 'English',
+    label_ar: 'إنجليزي',
+    text: 'Patient presents with acute myocardial infarction, EKG confirms STEMI. History of hypertension crisis, well controlled currently on medication.',
+  },
+  {
+    label_en: 'Arabic',
+    label_ar: 'عربي',
+    text: 'مريض يعاني من التهاب رئوي بكتيري مع سعال شديد وحمى، وكسر في الساق اليسرى بعد سقوط.',
+  },
+  {
+    label_en: 'Mixed (code-switched)',
+    label_ar: 'مختلط (تبديل لغوي)',
+    text: 'Patient known case of sukari, presents with ضغط دم مرتفع and suspected appendicitis, ألم شديد في الزائدة الدودية مع حمى.',
+  },
+];
 const FeatureCard = ({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) => (
   <Card className="text-center bg-card/50 backdrop-blur-sm floating-card">
     <CardHeader>
@@ -37,7 +62,7 @@ export function HomePage() {
   const [noteText, setNoteText] = useState('');
   const [branch, setBranch] = useState<HospitalBranchId | ''>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [demoResult, setDemoResult] = useState<CodingEngineResult | null>(null);
+  const [demoResult, setDemoResult] = useState<DemoAnalysisResult | null>(null);
   const navigate = useNavigate();
   const { t, language, isRtl } = useLanguage();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
@@ -70,7 +95,7 @@ export function HomePage() {
         setIsModalOpen(false);
         navigate('/coding-workspace', { state: { codingJob: response } });
       } else {
-        const result = await api<CodingEngineResult>('/api/demo/analyze-note', {
+        const result = await api<DemoAnalysisResult>('/api/demo/analyze-note', {
           method: 'POST',
           body: JSON.stringify({ clinical_note: noteText }),
         });
@@ -161,7 +186,7 @@ export function HomePage() {
         <p className="text-muted-foreground">{t('home.footer')}</p>
       </footer>
       <Dialog open={isModalOpen} onOpenChange={(open) => { setIsModalOpen(open); if (!open) resetModal(); }}>
-        <DialogContent className="sm:max-w-[625px]">
+        <DialogContent className={cn(demoResult ? "sm:max-w-[700px]" : "sm:max-w-[625px]")}>
           {demoResult ? (
             <>
               <DialogHeader>
@@ -172,16 +197,64 @@ export function HomePage() {
                     : 'This is a live preview only — nothing was saved. Sign in for the full Coding Workspace and to save your work.'}
                 </DialogDescription>
               </DialogHeader>
-              <div className="py-4 space-y-4 max-h-[50vh] overflow-y-auto">
-                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
-                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('coding.drgTitle')}</p>
-                  <p className="font-semibold font-display">
-                    {demoResult.drg.subclass} · {language === 'ar' ? demoResult.drg.title_ar : demoResult.drg.title_en}
-                  </p>
+              <div className="py-4 space-y-5 max-h-[60vh] overflow-y-auto pe-1">
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('coding.drgTitle')}</p>
+                      <p className="font-semibold font-display">
+                        {demoResult.drg.subclass} · {language === 'ar' ? demoResult.drg.title_ar : demoResult.drg.title_en}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <Badge variant="outline" className="gap-1"><Languages className="h-3 w-3" />{t(demoResult.detected_language === 'ar' ? 'lang.ar' : demoResult.detected_language === 'mixed' ? 'lang.mixed' : 'lang.en')}</Badge>
+                      <Badge variant="secondary">{isRtl ? 'الثقة' : 'Confidence'}: {(demoResult.confidence_score * 100).toFixed(0)}%</Badge>
+                    </div>
+                  </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline" className="gap-1"><Building2 className="h-3 w-3" />{language === 'ar' ? demoResult.drg.department_ar : demoResult.drg.department_en}</Badge>
-                    <Badge variant="secondary">{isRtl ? 'الثقة' : 'Confidence'}: {(demoResult.confidence_score * 100).toFixed(0)}%</Badge>
+                    <Badge variant={demoResult.drg.partition === 'Surgical' ? 'default' : 'secondary'} className="gap-1">
+                      {demoResult.drg.partition === 'Surgical' ? <Scissors className="h-3 w-3" /> : <Stethoscope className="h-3 w-3" />}
+                      {t(demoResult.drg.partition === 'Surgical' ? 'coding.partition.surgical' : 'coding.partition.medical')}
+                    </Badge>
                   </div>
+                  <div className="flex flex-wrap items-center gap-4 pt-1">
+                    <div className="flex items-center gap-1.5">
+                      <Activity className="h-3.5 w-3.5 text-orange-500" />
+                      <span className="text-xs text-muted-foreground">{t('coding.soi')}</span>
+                      <span className="font-bold text-sm">{demoResult.drg.soi}/4</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <HeartPulse className="h-3.5 w-3.5 text-red-500" />
+                      <span className="text-xs text-muted-foreground">{t('coding.rom')}</span>
+                      <span className="font-bold text-sm">{demoResult.drg.rom}/4</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Scale3d className="h-3.5 w-3.5 text-blue-500" />
+                      <span className="text-xs text-muted-foreground">{t('coding.relativeWeight')}</span>
+                      <span className="font-bold text-sm">{demoResult.drg.relative_weight.toFixed(2)}</span>
+                    </div>
+                  </div>
+                  {demoResult.drg.procedure && (
+                    <p className="text-sm flex items-center gap-1.5 text-purple-700 dark:text-purple-400">
+                      <Scissors className="h-3.5 w-3.5 shrink-0" />
+                      {t('coding.procedureDetected')}: {language === 'ar' ? demoResult.drg.procedure.desc_ar : demoResult.drg.procedure.desc_en}
+                    </p>
+                  )}
+                  {demoResult.drg.explanation && (
+                    <Accordion type="single" collapsible>
+                      <AccordionItem value="explanation" className="border-b-0">
+                        <AccordionTrigger className="text-xs text-muted-foreground py-1 hover:no-underline">{t('coding.explanation')}</AccordionTrigger>
+                        <AccordionContent>
+                          <ul className="text-xs text-muted-foreground space-y-1 list-disc ps-4" dir="auto">
+                            {(language === 'ar' ? demoResult.drg.explanation.ar : demoResult.drg.explanation.en).map((line, i) => (
+                              <li key={i}>{line}</li>
+                            ))}
+                          </ul>
+                        </AccordionContent>
+                      </AccordionItem>
+                    </Accordion>
+                  )}
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-medium">{t('coding.suggestedCodes')}</p>
@@ -192,6 +265,27 @@ export function HomePage() {
                       {c.is_principal && <Badge variant="secondary" className="text-2xs shrink-0">{t('coding.principal')}</Badge>}
                     </div>
                   ))}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium flex items-center gap-1.5"><Lightbulb className="h-4 w-4" />{isRtl ? 'تنبيهات سلامة التوثيق (CDI)' : 'CDI Documentation Nudges'}</p>
+                  {demoResult.nudges.length > 0 ? (
+                    demoResult.nudges.map((n) => (
+                      <div key={n.id} className="rounded-md border px-3 py-2 space-y-1">
+                        <Badge variant={n.severity === 'critical' ? 'destructive' : n.severity === 'warning' ? 'default' : 'secondary'} className="text-2xs">{n.severity}</Badge>
+                        <p className="text-sm" dir="auto">{language === 'ar' && n.prompt_ar ? n.prompt_ar : n.prompt}</p>
+                        {(language === 'ar' ? n.soi_impact_ar : n.soi_impact) && (
+                          <p className="flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400">
+                            <TrendingUp className="h-3 w-3 shrink-0" />{language === 'ar' ? n.soi_impact_ar : n.soi_impact}
+                          </p>
+                        )}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                      {isRtl ? 'لم يتم رصد أي فجوات توثيقية لهذه الملاحظة.' : 'No documentation gaps detected for this note.'}
+                    </p>
+                  )}
                 </div>
               </div>
               <DialogFooter className="gap-2 sm:gap-0">
@@ -216,7 +310,7 @@ export function HomePage() {
                 </DialogDescription>
               </DialogHeader>
               <div className="py-4 space-y-4">
-                {isAuthenticated && (
+                {isAuthenticated ? (
                   <div className="space-y-2">
                     <Label htmlFor="branch-select">{isRtl ? 'الفرع' : 'Hospital Branch'}</Label>
                     <Select value={branch} onValueChange={(v) => setBranch(v as HospitalBranchId)} disabled={isAnalyzing}>
@@ -230,6 +324,25 @@ export function HomePage() {
                       </SelectContent>
                     </Select>
                   </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">{isRtl ? 'أو جرّب أحد الأمثلة الجاهزة' : 'Or try a ready-made example'}</Label>
+                    <div className="flex flex-wrap gap-1.5">
+                      {EXAMPLE_NOTES.map((ex) => (
+                        <Button
+                          key={ex.label_en}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs h-8"
+                          disabled={isAnalyzing}
+                          onClick={() => setNoteText(ex.text)}
+                        >
+                          {isRtl ? ex.label_ar : ex.label_en}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
                 )}
                 <Textarea
                   placeholder={t('home.modal.placeholder')}
@@ -237,8 +350,14 @@ export function HomePage() {
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
                   disabled={isAnalyzing}
+                  maxLength={isAuthenticated ? undefined : DEMO_NOTE_MAX_LENGTH}
                   dir="auto"
                 />
+                {!isAuthenticated && (
+                  <p className={cn("text-xs text-end", noteText.length > DEMO_NOTE_MAX_LENGTH * 0.9 ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground")}>
+                    {noteText.length} / {DEMO_NOTE_MAX_LENGTH}
+                  </p>
+                )}
               </div>
               <DialogFooter>
                 <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isAnalyzing} className="min-h-[44px]">{t('common.cancel')}</Button>
