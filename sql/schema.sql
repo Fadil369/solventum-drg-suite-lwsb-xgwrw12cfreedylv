@@ -83,8 +83,15 @@ CREATE TABLE coding_jobs (
   encounter_id UUID NOT NULL REFERENCES encounters(id) ON DELETE CASCADE,
   engine_version VARCHAR(64),
   source_text TEXT,
-  suggested_codes JSONB,    -- e.g., [{ "code": "J18.9", "desc": "Pneumonia...", "confidence": 0.82 }]
+  detected_language VARCHAR(8), -- en | ar | mixed (code-switched)
+  suggested_codes JSONB,    -- e.g., [{ "code": "J18.9", "desc": "Pneumonia...", "desc_ar": "...", "confidence": 0.82 }]
   final_codes JSONB,        -- Codes accepted after human review or autonomous decision
+  principal_diagnosis_code VARCHAR(16),
+  secondary_diagnosis_codes JSONB DEFAULT '[]'::jsonb,
+  drg_code VARCHAR(16),          -- APR-DRG family code, e.g. "194"
+  soi SMALLINT,                  -- Severity of Illness subclass (1-4)
+  rom SMALLINT,                  -- Risk of Mortality subclass (1-4)
+  relative_weight NUMERIC(6,3),  -- drives Case Mix Index (CMI)
   status VARCHAR(32) DEFAULT 'NEEDS_REVIEW', -- NEEDS_REVIEW | AUTO_DROP | SENT_TO_NPHIES | REJECTED
   confidence_score NUMERIC(5,2) DEFAULT 0,
   phase VARCHAR(32) DEFAULT 'CAC', -- CAC | SEMI_AUTONOMOUS | AUTONOMOUS
@@ -92,6 +99,32 @@ CREATE TABLE coding_jobs (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
 CREATE INDEX idx_coding_jobs_encounter_id ON coding_jobs(encounter_id);
+-- 6a) ICD-10-AM Bilingual Lexicon: reference terminology backing the coding
+-- engine's code-switching NLU (mirrors shared/bilingual-lexicon.ts).
+CREATE TABLE icd10_lexicon (
+  code VARCHAR(16) PRIMARY KEY,
+  desc_en VARCHAR(255) NOT NULL,
+  desc_ar VARCHAR(255) NOT NULL,
+  synonyms_en TEXT[] DEFAULT '{}',
+  synonyms_ar TEXT[] DEFAULT '{}',
+  synonyms_colloquial TEXT[] DEFAULT '{}',
+  base_confidence NUMERIC(4,3) NOT NULL,
+  soi_weight SMALLINT NOT NULL DEFAULT 0,
+  rom_weight SMALLINT NOT NULL DEFAULT 0,
+  drg_family VARCHAR(16) NOT NULL
+);
+-- 6b) APR-DRG Reference Table: bilingual DRG family metadata and the
+-- relative-weight curve by SOI subclass (mirrors shared/drg-grouper.ts).
+-- BrainSAIT's own calibration, not 3M-licensed APR-DRG/EAPG weights.
+CREATE TABLE apr_drg_reference (
+  code VARCHAR(16) PRIMARY KEY,
+  title_en VARCHAR(255) NOT NULL,
+  title_ar VARCHAR(255) NOT NULL,
+  base_weight_soi_1 NUMERIC(6,3) NOT NULL,
+  base_weight_soi_2 NUMERIC(6,3) NOT NULL,
+  base_weight_soi_3 NUMERIC(6,3) NOT NULL,
+  base_weight_soi_4 NUMERIC(6,3) NOT NULL
+);
 -- 7) Payments: For reconciling payments received against submitted claims.
 CREATE TABLE payments (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -103,6 +136,22 @@ CREATE TABLE payments (
   received_at TIMESTAMP WITH TIME ZONE,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+-- 7a) CDI Nudges: Bilingual, real-time Clinical Documentation Integrity
+-- prompts generated from the same lexicon/grouper pass as coding_jobs.
+CREATE TABLE cdi_nudges (
+  id VARCHAR(128) PRIMARY KEY, -- deterministic: {code}_{modifier_id}_{encounter_id}
+  encounter_id UUID NOT NULL REFERENCES encounters(id) ON DELETE CASCADE,
+  severity VARCHAR(16) NOT NULL, -- info | warning | critical
+  prompt TEXT NOT NULL,
+  prompt_ar TEXT NOT NULL,
+  suggested_text TEXT,
+  suggested_text_ar TEXT,
+  soi_impact TEXT,     -- e.g. "Closing this gap could raise SOI from 2 to 3."
+  soi_impact_ar TEXT,
+  status VARCHAR(16) DEFAULT 'active', -- active | resolved | dismissed
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT now()
+);
+CREATE INDEX idx_cdi_nudges_encounter_id ON cdi_nudges(encounter_id);
 -- 8) Audit Logs: General-purpose audit trail for SOC2 compliance.
 CREATE TABLE audit_logs (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

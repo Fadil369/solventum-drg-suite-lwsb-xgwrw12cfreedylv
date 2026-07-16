@@ -1,3 +1,23 @@
 
 # Bootstrap marker
 .bootstrap-complete
+
+# Dependencies
+node_modules/
+.wrangler/
+
+# Build output
+dist/
+dist-ssr/
+*.tsbuildinfo
+.eslintcache
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# Env / OS
+.env
+.env.local
+.DS_Store

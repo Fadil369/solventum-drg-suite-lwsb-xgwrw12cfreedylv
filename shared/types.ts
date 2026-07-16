@@ -33,6 +33,31 @@ export interface Encounter {
   admission_dt: string; // ISO string
   clinical_note?: string;
   provider_cr?: string;
+  branch?: HospitalBranchId;
+}
+export interface EncounterWithPatient extends Encounter {
+  patient: Patient | null;
+}
+/** The hospital network's real branch sites. */
+export type HospitalBranchId = 'riyadh' | 'madinah' | 'unaizah' | 'khamis' | 'jizan' | 'abha';
+export interface NphiesBranchStatus {
+  branch: HospitalBranchId;
+  gss: number;
+  pa: number;
+  coc: number;
+  sc: number;
+  synced_at: string | null;
+  stale: boolean;
+  oracle_portal_status: 'online' | 'maintenance' | 'offline' | 'unknown';
+}
+/** Live (best-effort) status of the real NPHIES mirror + Oracle Health bridge, proxied server-side. */
+export interface NphiesLiveStatus {
+  nphies_auth_healthy: boolean;
+  last_sync_attempt: string | null;
+  last_good_sync: string | null;
+  sync_error: string | null;
+  oracle_bridge_reachable: boolean;
+  branches: NphiesBranchStatus[];
 }
 export interface Claim {
   id: string;
@@ -45,24 +70,176 @@ export interface Claim {
 export interface SuggestedCode {
   code: string;
   desc: string;
+  desc_ar?: string;
+  term_en?: string;
+  term_ar?: string;
+  matched_text?: string;
   confidence: number;
+  is_principal?: boolean;
+  soi_weight?: number; // contribution to Severity of Illness (0-3)
+  rom_weight?: number; // contribution to Risk of Mortality (0-3)
+  /** Coder explicitly confirmed this individual code (distinct from
+   * accepting the whole job) — set via POST /coding-jobs/:id/codes/:code/accept. */
+  confirmed?: boolean;
+}
+export interface SuggestedProcedure {
+  code: string;
+  desc: string;
+  desc_ar?: string;
+  matched_text?: string;
+  /** Real Saudi Billing System (SBS v3.4) billable code + description for this
+   * procedure, when a single-code mapping exists (some procedure families —
+   * e.g. tumor excision — require organ-specific SBS coding this generic
+   * lexicon entry can't resolve on its own, so these are omitted rather than
+   * mapped to a misleading code). */
+  sbs_code?: string;
+  sbs_desc_en?: string;
+  /** Set when this procedure has distinct SBS unilateral/bilateral codes and
+   * the note didn't specify which — a refinement question should resolve it. */
+  sbs_laterality_unspecified?: boolean;
+}
+/** AI-generated (Workers AI), best-effort clinical narrative: a chronological
+ * event timeline and a plain-language diagnostic impression, both grounded
+ * strictly in the submitted text. This is an assistive summary, not a
+ * diagnosis — always shown alongside, and subordinate to, the deterministic
+ * coding/DRG result, which remains the explainable, reproducible source of
+ * truth. null when generation failed or was skipped; the rest of the
+ * analysis is never blocked by this being unavailable. */
+export interface AiClinicalSummary {
+  timeline: string[];
+  impression: string;
+}
+/**
+ * A single clarifying option for a RefinementQuestion. Picking one appends
+ * `answer_text` to the note before re-analysis — the exact same keyword the
+ * deterministic matcher already looks for to resolve the underlying
+ * specificity gap, so answering a question has a real, explainable effect
+ * on the re-coded result rather than being cosmetic.
+ */
+export interface RefinementOption {
+  label_en: string;
+  label_ar: string;
+  answer_text: string;
+}
+/**
+ * A single step in the "sequenced, AI-informed" clarifying-question flow:
+ * the deterministic engine (lexicon specificity_modifiers + SBS laterality
+ * requirements) identifies exactly which missing detail would change the
+ * assigned code, and phrases it as a question with concrete answer options
+ * — this is the CDI nudge concept taken one step further, from a passive
+ * "you should document this" prompt to an active question that, once
+ * answered, immediately re-runs the real coding engine on the enriched text.
+ */
+export interface RefinementQuestion {
+  id: string;
+  prompt_en: string;
+  prompt_ar: string;
+  severity: 'info' | 'warning' | 'critical';
+  options: RefinementOption[];
+  /** What category of gap this question resolves, so the refine endpoint
+   * routes the answer to the right place instead of always treating it as
+   * free text appended to the note:
+   * - 'specificity' / 'laterality' (existing): the resolving keyword is
+   *   appended to the note and the engine re-runs on the enriched text.
+   * - 'age': the patient's age, a structured input that materially affects
+   *   the Risk of Mortality (ROM) score.
+   * - 'poa': whether a secondary diagnosis was Present On Admission or
+   *   developed during the stay — resolves the clinical *sequence* of
+   *   events, since a hospital-acquired complication shouldn't retroactively
+   *   inflate the admission-severity score the way a comorbidity does.
+   * - 'principal': which of two closely-ranked diagnoses is the true reason
+   *   for the encounter, when the deterministic ranking is ambiguous. */
+  kind: 'specificity' | 'laterality' | 'age' | 'poa' | 'principal';
+  /** The diagnosis/procedure code this question concerns (laterality, poa). */
+  target_code?: string;
+  /** 'number' renders a numeric input instead of the option buttons — used only by 'age'. */
+  input_type?: 'choice' | 'number';
+}
+/** A single answer submitted from the refinement wizard, tagged with the
+ * question's `kind` so the server knows how to apply it (append to the note,
+ * set structured age, record a POA decision, or override the principal
+ * diagnosis) rather than treating every answer as interchangeable free text. */
+export interface RefinementAnswer {
+  question_id: string;
+  kind: RefinementQuestion['kind'];
+  target_code?: string;
+  value: string;
+}
+// --- BRAINSAIT APR-DRG GROUPER RESULT ---
+// A deterministic, explainable implementation of the APR-DRG methodology:
+// assigns a base DRG family from the principal diagnosis, then derives
+// Severity of Illness (SOI) and Risk of Mortality (ROM) subclasses (1-4)
+// from the weighted contribution of secondary diagnoses. When a matching
+// OR procedure is detected, the encounter is upgraded from the Medical to
+// the Surgical partition, as in real APR-DRG methodology.
+export interface DrgResult {
+  code: string; // e.g. "194"
+  title_en: string;
+  title_ar: string;
+  /** The clinical department that owns this DRG family (e.g. "Cardiology"), for cross-department routing/reporting. */
+  department_en: string;
+  department_ar: string;
+  soi: 1 | 2 | 3 | 4; // Severity of Illness
+  rom: 1 | 2 | 3 | 4; // Risk of Mortality
+  relative_weight: number; // drives Case Mix Index (CMI)
+  subclass: string; // e.g. "194-M-2" (DRG-Partition-SOI)
+  methodology: 'BrainSAIT-APR-DRG' | 'BrainSAIT-EAPG';
+  partition: 'Medical' | 'Surgical';
+  procedure?: { code: string; desc_en: string; desc_ar: string };
+  /** Bilingual, human-readable trace of every factor that produced this result. */
+  explanation: { en: string[]; ar: string[] };
 }
 export interface CodingJob {
   id: string;
   encounter_id: string;
   suggested_codes: SuggestedCode[];
+  suggested_procedures?: SuggestedProcedure[];
   status: 'NEEDS_REVIEW' | 'AUTO_DROP' | 'SENT_TO_NPHIES' | 'REJECTED';
   confidence_score: number;
   phase: 'CAC' | 'SEMI_AUTONOMOUS' | 'AUTONOMOUS';
   created_at: string; // ISO string
   source_text?: string;
+  principal_code?: string;
+  secondary_codes?: string[];
+  drg?: DrgResult;
+  detected_language?: 'en' | 'ar' | 'mixed';
+  branch?: HospitalBranchId;
+  /** Best-effort AI narrative computed alongside the deterministic result at
+   * ingest time (and refreshed on refine) — see AiClinicalSummary. */
+  ai_summary?: AiClinicalSummary | null;
+  /** Outstanding specificity gaps a coder can resolve via the sequenced
+   * refinement flow (POST /coding-jobs/:id/refine) — see RefinementQuestion. */
+  questions?: RefinementQuestion[];
+  /** Patient age in years, captured at ingest or via the refinement wizard's
+   * age question — persisted here (previously only used transiently at
+   * ingest and lost on every subsequent refine) so age-driven ROM scoring
+   * survives re-analysis. */
+  age?: number;
+  /** The encounter type this job was coded against — persisted for the same
+   * reason as age: refine() re-runs the engine and needs it, not just the
+   * one-time ingest call. */
+  encounter_type?: 'INPATIENT' | 'OUTPATIENT' | 'ED';
+  /** Present-On-Admission decisions for secondary diagnoses, collected via
+   * the refinement wizard's 'poa' questions. A diagnosis marked 'developed'
+   * (i.e. arose during this stay rather than being present at admission) is
+   * excluded from the admission-severity (SOI/ROM) score — see
+   * groupEncounter's poaExclusions. */
+  poa?: Record<string, 'present' | 'developed'>;
+  /** Set once a coder has explicitly confirmed the principal diagnosis via
+   * the refinement wizard's 'principal' question — suppresses that question
+   * from being asked again on subsequent refine passes. */
+  principal_confirmed?: boolean;
 }
 export interface Nudge {
     id: string;
     encounter_id: string;
     severity: 'info' | 'warning' | 'critical';
     prompt: string;
+    prompt_ar?: string;
     suggested_text?: string;
+    suggested_text_ar?: string;
+    soi_impact?: string; // e.g. "Closing this gap may raise SOI from 2 to 3"
+    soi_impact_ar?: string;
     status: 'active' | 'resolved' | 'dismissed';
     created_at: string; // ISO string
 }
@@ -88,5 +265,26 @@ export interface Analytics {
     accuracy: number;
     phase: 'CAC' | 'SEMI_AUTONOMOUS' | 'AUTONOMOUS';
     phase_dist?: Record<string, number>;
+    relative_weight?: number; // contributes to Case Mix Index
+    soi?: number;
+    rom?: number;
+    drg_family?: string;
+    department_en?: string;
+    department_ar?: string;
     created_at: string; // ISO string
 }
+/** Server-side account record: password is never stored or transmitted in plaintext. */
+export interface Account {
+  id: string; // username, lowercased
+  username: string;
+  password_hash: string;
+  salt: string;
+  role: 'admin' | 'coder';
+}
+export interface DepartmentCaseMixRow {
+  department_en: string;
+  department_ar: string;
+  encounter_count: number;
+  case_mix_index: number;
+}
+export type Language = 'en' | 'ar';

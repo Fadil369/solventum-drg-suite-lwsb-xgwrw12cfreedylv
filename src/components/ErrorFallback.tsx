@@ -40,9 +40,9 @@ export function ErrorFallback({
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
-      <div className="w-full max-w-md">
-        {/* Animated background gradient */}
-        <div className="absolute inset-0 bg-gradient-rainbow opacity-5 dark:opacity-10" />
+      <div className="relative w-full max-w-md">
+        {/* Decorative background gradient, confined to this card by the relative wrapper above */}
+        <div className="absolute inset-0 bg-gradient-rainbow opacity-5 dark:opacity-10 rounded-2xl" />
         
         {/* Error card */}
         <Card className="relative backdrop-blur-sm shadow-2xl">
@@ -67,11 +67,11 @@ export function ErrorFallback({
             {/* Action buttons */}
             <div className="space-y-3">
               <Button onClick={handleRetry} className="w-full">
-                <RefreshCw className="w-4 h-4 mr-2" />
+                <RefreshCw className="w-4 h-4 me-2" />
                 Try Again
               </Button>
               <Button onClick={handleGoHome} variant="secondary" className="w-full">
-                <Home className="w-4 h-4 mr-2" />
+                <Home className="w-4 h-4 me-2" />
                 Go to Homepage
               </Button>
             </div>

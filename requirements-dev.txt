@@ -1,0 +1,4 @@
+-r src/backend/requirements.txt
+pytest
+requests-mock
+sqlalchemy

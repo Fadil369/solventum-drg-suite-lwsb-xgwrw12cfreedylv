@@ -77,14 +77,16 @@ export class ErrorBoundary extends Component<Props, State> {
                   An unexpected error occurred. Our team has been notified.
                 </CardDescription>
               </CardHeader>
-              <CardContent>
-                <details className="text-left bg-muted p-2 rounded-md text-xs">
-                  <summary>Error Details</summary>
-                  <pre className="mt-2 whitespace-pre-wrap break-all bg-background/50 p-2 rounded overflow-x-auto">
-                    <code>{this.state.error?.message}</code>
-                  </pre>
-                </details>
-              </CardContent>
+              {process.env.NODE_ENV === 'development' && (
+                <CardContent>
+                  <details className="text-left bg-muted p-2 rounded-md text-xs">
+                    <summary>Error Details (Development only)</summary>
+                    <pre className="mt-2 whitespace-pre-wrap break-all bg-background/50 p-2 rounded overflow-x-auto">
+                      <code>{this.state.error?.message}</code>
+                    </pre>
+                  </details>
+                </CardContent>
+              )}
               <CardFooter className="flex flex-col sm:flex-row justify-center gap-4">
                 <Button onClick={this.handleRetry}>Retry</Button>
                 <Button variant="outline" onClick={this.handleRedirect}>Go to Homepage</Button>
