@@ -68,7 +68,7 @@ export function CDINudgesConsole() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border overflow-x-auto scroll-snap-type-x mandatory snap-mandatory">
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

@@ -41,7 +41,7 @@ export function AppLayout({ children }: AppLayoutProps): JSX.Element {
               <ThemeToggle className="relative top-0 right-0" />
             </div>
           </header>
-          <main className="flex-1 overflow-y-auto scroll-snap-type-y mandatory snap-mandatory">
+          <main className="flex-1 overflow-y-auto">
             {children}
           </main>
         </SidebarInset>

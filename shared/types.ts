@@ -35,6 +35,9 @@ export interface Encounter {
   provider_cr?: string;
   branch?: HospitalBranchId;
 }
+export interface EncounterWithPatient extends Encounter {
+  patient: Patient | null;
+}
 /** The hospital network's real branch sites. */
 export type HospitalBranchId = 'riyadh' | 'madinah' | 'unaizah' | 'khamis' | 'jizan' | 'abha';
 export interface NphiesBranchStatus {

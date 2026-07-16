@@ -88,7 +88,7 @@ export function ClaimsManager() {
                 placeholder={isRtl ? 'تصفية برقم المطالبة' : 'Filter by Claim #'}
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full sm:max-w-sm focus:ring-2 focus:ring-blue-500 shadow-glow"
+                className="w-full sm:max-w-sm"
               />
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger className="w-full sm:w-[180px]">
@@ -106,7 +106,7 @@ export function ClaimsManager() {
             </div>
           </CardHeader>
           <CardContent>
-            <div className="rounded-md border overflow-x-auto scroll-snap-type-x mandatory snap-mandatory">
+            <div className="rounded-md border overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>

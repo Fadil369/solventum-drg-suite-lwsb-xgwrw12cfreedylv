@@ -181,10 +181,6 @@
   .gradient-overlay {
     @apply absolute inset-0 bg-gradient-primary/20 -z-10 rounded-xl;
   }
-  .scroll-snap {
-    scroll-snap-type: y mandatory;
-    scroll-behavior: smooth;
-  }
   /* Layout Utilities */
   .center {
     @apply flex items-center justify-center;

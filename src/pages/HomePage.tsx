@@ -61,7 +61,7 @@ export function HomePage() {
     }
   };
   return (
-    <div className="min-h-screen w-full bg-background text-foreground relative overflow-x-hidden scroll-snap">
+    <div className="min-h-screen w-full bg-background text-foreground relative overflow-x-hidden">
       <div className="fixed top-4 end-4 z-50 flex items-center gap-1">
         <LanguageToggle />
         <ThemeToggle className="relative top-0 right-0" />
@@ -78,7 +78,7 @@ export function HomePage() {
       </header>
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="py-8 md:py-10 lg:py-12">
-          <section className="relative min-h-screen flex items-center justify-center text-center py-20 md:py-28 lg:py-32 scroll-snap-align-start snap-mandatory">
+          <section className="relative min-h-screen flex items-center justify-center text-center py-20 md:py-28 lg:py-32">
             <div className="absolute inset-0 -z-10 h-full w-full bg-background bg-[radial-gradient(#0E5FFF_1px,transparent_1px)] [background-size:32px_32px] opacity-20"></div>
             <div className="absolute inset-0 bg-gradient-primary/10 -z-10"></div>
             <motion.div
@@ -111,7 +111,7 @@ export function HomePage() {
               </div>
             </motion.div>
           </section>
-          <section className="py-16 md:py-24 lg:py-32 scroll-snap-align-start snap-mandatory">
+          <section className="py-16 md:py-24 lg:py-32">
             <div className="text-center mb-12">
               <h2 className="text-3xl md:text-4xl font-bold font-display">{t('home.sectionTitle')}</h2>
               <p className="mt-4 max-w-2xl mx-auto text-muted-foreground">

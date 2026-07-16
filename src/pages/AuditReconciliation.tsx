@@ -99,7 +99,7 @@ export function AuditReconciliation() {
               )}
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto rounded-md border scroll-snap-type-x mandatory snap-mandatory">
+              <div className="overflow-x-auto rounded-md border">
                 <Table>
                   <TableHeader>
                     <TableRow>

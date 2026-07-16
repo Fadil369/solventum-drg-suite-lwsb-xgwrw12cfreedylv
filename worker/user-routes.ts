@@ -175,6 +175,18 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const page = await CodingJobEntity.list(c.env, cursor, limit);
     return ok(c, page);
   });
+  // GET a single encounter with its patient joined — the Coding Workspace uses
+  // this to show the real patient tied to a job instead of a placeholder name.
+  app.get('/api/encounters/:id', async (c) => {
+    await ensureAllSeeds(c.env);
+    const id = c.req.param('id');
+    const encounter = new EncounterEntity(c.env, id);
+    if (!(await encounter.exists())) return notFound(c, 'encounter not found');
+    const state = await encounter.getState();
+    const patientEntity = new PatientEntity(c.env, state.patient_id);
+    const patient = (await patientEntity.exists()) ? await patientEntity.getState() : null;
+    return ok(c, { ...state, patient });
+  });
   // POST Ingest Note (bilingual AR/EN coding engine + APR-DRG grouper)
   app.post('/api/ingest-note', async (c) => {
     const jobId = crypto.randomUUID();

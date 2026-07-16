@@ -126,7 +126,7 @@ export function Dashboard() {
               <CardDescription>{t('dashboard.recentClaimsDesc')}</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto rounded-lg border scroll-snap-type-x mandatory snap-mandatory">
+              <div className="overflow-x-auto rounded-lg border">
                 <Table>
                   <TableHeader>
                     <TableRow>

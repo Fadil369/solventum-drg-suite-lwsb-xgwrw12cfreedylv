@@ -12,19 +12,13 @@ import { CheckCircle, XCircle, Send, ThumbsUp, FilePlus2, Activity, HeartPulse, 
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
-import type { CodingJob } from '@shared/types';
+import type { CodingJob, EncounterWithPatient } from '@shared/types';
 import { findBranch } from '@shared/hospital-branches';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { Breadcrumbs } from '@/components/Breadcrumbs';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useLanguage } from '@/hooks/use-language';
-const mockEncounterDetails = {
-  patientName: 'Abdullah Al-Farsi',
-  mrn: 'MRN789012',
-  admissionDate: '2024-08-15',
-  encounterType: 'Inpatient',
-};
 const codeRowVariants = {
   hidden: { opacity: 0, x: -20 },
   visible: { opacity: 1, x: 0 },
@@ -45,6 +39,11 @@ export function CodingWorkspace() {
     }
   }, [latestJobData, codingJob]);
   const { t, language, isRtl } = useLanguage();
+  const { data: encounter, isLoading: isLoadingEncounter } = useQuery({
+    queryKey: ['encounter', codingJob?.encounter_id],
+    queryFn: () => api<EncounterWithPatient>(`/api/encounters/${codingJob!.encounter_id}`),
+    enabled: !!codingJob?.encounter_id,
+  });
   const acceptCodesMutation = useMutation({
     mutationFn: (jobId: string) => api(`/api/coding-jobs/${jobId}/accept`, { method: 'POST' }),
     onSuccess: () => {
@@ -76,7 +75,18 @@ export function CodingWorkspace() {
             <div>
                 <h1 className="text-xl font-bold font-display">{t('coding.title')}</h1>
                 <p className="text-sm text-muted-foreground">
-                    {mockEncounterDetails.patientName} (MRN: {mockEncounterDetails.mrn})
+                    {isLoadingEncounter ? (
+                      <span className="inline-block h-4 w-40 rounded shimmer-bg align-middle" />
+                    ) : encounter?.patient ? (
+                      <>
+                        {encounter.patient.given_name} {encounter.patient.family_name}
+                        {' '}({isRtl ? 'رقم الهوية' : 'National ID'}: {encounter.patient.national_id})
+                      </>
+                    ) : codingJob ? (
+                      isRtl ? 'سجل المريض غير متوفر' : 'Patient record unavailable'
+                    ) : (
+                      t('coding.noNote')
+                    )}
                     {codingJob?.branch && (() => {
                       const b = findBranch(codingJob.branch);
                       return b ? ` · ${language === 'ar' ? b.name_ar : b.name_en}` : null;
@@ -188,14 +198,14 @@ export function CodingWorkspace() {
             </CardContent>
           </Card>
         )}
-        <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"} className="flex-1 w-full rounded-lg border bg-background h-full scroll-snap-type-y mandatory">
+        <ResizablePanelGroup direction={isMobile ? "vertical" : "horizontal"} className="flex-1 w-full rounded-lg border bg-background h-full">
           <ResizablePanel defaultSize={50} minSize={30}>
             <Card className="h-full flex flex-col border-0 rounded-none">
               <CardHeader className="py-4">
                 <CardTitle>{t('coding.clinicalNote')}</CardTitle>
               </CardHeader>
               <CardContent className="flex-1 overflow-hidden p-4">
-                <ScrollArea className="h-full pr-4 scroll-snap-type-y snap-mandatory">
+                <ScrollArea className="h-full pr-4">
                   {isLoading ? (
                     <div className="space-y-2">
                       <Skeleton className="h-4 w-full shimmer-bg" />
