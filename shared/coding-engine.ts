@@ -176,6 +176,15 @@ export function matchProcedures(rawText: string): MatchedProcedureInfo[] {
 export interface CodingEngineOptions {
   age?: number;
   encounterType?: 'INPATIENT' | 'OUTPATIENT' | 'ED';
+  /** Secondary diagnosis codes confirmed not present on admission — see
+   * GroupEncounterParams.poaExclusions. */
+  poaExclusions?: string[];
+  /** When set (from the refinement wizard's 'principal' question), forces
+   * this code to be the principal diagnosis instead of the automatic
+   * acuity-weighted ranking — used when a coder has explicitly confirmed
+   * which of two closely-ranked candidates is the true reason for the
+   * encounter. Ignored if the code isn't among the matched diagnoses. */
+  principalOverride?: string;
 }
 export interface CodingEngineResult {
   suggested_codes: SuggestedCode[];
@@ -230,7 +239,14 @@ export function runCodingEngine(rawText: string, options: CodingEngineOptions = 
     principal_code = 'Z00.00';
     secondary_codes = [];
   } else {
-    const ranked = electPrincipal(matches);
+    let ranked = electPrincipal(matches);
+    if (options.principalOverride) {
+      const overrideIdx = ranked.findIndex((r) => r.entry.code === options.principalOverride);
+      if (overrideIdx > 0) {
+        const [chosen] = ranked.splice(overrideIdx, 1);
+        ranked = [chosen, ...ranked];
+      }
+    }
     principal_code = ranked[0].entry.code;
     secondary_codes = ranked.slice(1).map((r) => r.entry.code);
     suggested_codes = ranked.map((m) => ({
@@ -273,6 +289,7 @@ export function runCodingEngine(rawText: string, options: CodingEngineOptions = 
     procedureCodes: suggested_procedures.map((p) => p.code),
     age: options.age,
     encounterType: options.encounterType,
+    poaExclusions: options.poaExclusions,
   });
   const confidence_score = Math.round((suggested_codes.reduce((s, c) => s + c.confidence, 0) / suggested_codes.length) * 100) / 100;
   return { suggested_codes, suggested_procedures, principal_code, secondary_codes, drg, detected_language, confidence_score };

@@ -177,7 +177,17 @@ def elect_principal(matches: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(matches, key=score, reverse=True)
 
 
-def run_coding_engine(text: str, age: Optional[float] = None, encounter_type: str = "INPATIENT") -> Dict[str, Any]:
+def run_coding_engine(
+    text: str,
+    age: Optional[float] = None,
+    encounter_type: str = "INPATIENT",
+    poa_exclusions: Optional[List[str]] = None,
+    principal_override: Optional[str] = None,
+) -> Dict[str, Any]:
+    """principal_override: when set (from the refinement wizard's 'principal'
+    question), forces this code to be the principal diagnosis instead of the
+    automatic acuity-weighted ranking. Ignored if the code isn't among the
+    matched diagnoses. Mirrors shared/coding-engine.ts runCodingEngine."""
     detected_language = detect_language(text)
     matches = match_clinical_text(text)
     if not matches:
@@ -194,6 +204,11 @@ def run_coding_engine(text: str, age: Optional[float] = None, encounter_type: st
         secondary_codes: List[str] = []
     else:
         ranked = elect_principal(matches)
+        if principal_override:
+            override_idx = next((i for i, r in enumerate(ranked) if r["entry"]["code"] == principal_override), -1)
+            if override_idx > 0:
+                chosen = ranked.pop(override_idx)
+                ranked = [chosen] + ranked
         principal_code = ranked[0]["entry"]["code"]
         secondary_codes = [r["entry"]["code"] for r in ranked[1:]]
         suggested_codes = []
@@ -227,6 +242,7 @@ def run_coding_engine(text: str, age: Optional[float] = None, encounter_type: st
         procedure_codes=[p["code"] for p in suggested_procedures],
         age=age,
         encounter_type=encounter_type,
+        poa_exclusions=poa_exclusions,
     )
     confidence_score = round_half_up_2dp(sum(c["confidence"] for c in suggested_codes) / len(suggested_codes))
     return {

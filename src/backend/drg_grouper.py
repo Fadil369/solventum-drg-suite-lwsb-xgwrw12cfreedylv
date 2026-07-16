@@ -144,14 +144,23 @@ def group_encounter(
     procedure_codes: Optional[List[str]] = None,
     age: Optional[float] = None,
     encounter_type: str = "INPATIENT",
+    poa_exclusions: Optional[List[str]] = None,
 ) -> DrgResult:
+    """poa_exclusions: secondary diagnosis codes confirmed (via the
+    refinement wizard's Present-On-Admission questions) to have developed
+    *during* this stay rather than being present at admission. Still listed
+    among the secondary diagnoses for documentation completeness, but
+    excluded from the SOI/ROM contribution — see shared/drg-grouper.ts."""
     secondary_codes = secondary_codes or []
     procedure_codes = procedure_codes or []
+    poa_exclusion_set = set(poa_exclusions or [])
     principal_entry = find_lexicon_entry(principal_code)
     family = principal_entry["drg_family"] if principal_entry else "999"
     family_meta = DRG_FAMILY_TABLE.get(family, DRG_FAMILY_TABLE["999"])
     unique_secondary = list(dict.fromkeys(c for c in secondary_codes if c != principal_code))
-    secondary_entries = [e for e in (find_lexicon_entry(c) for c in unique_secondary) if e]
+    all_secondary_entries = [e for e in (find_lexicon_entry(c) for c in unique_secondary) if e]
+    secondary_entries = [e for e in all_secondary_entries if e["code"] not in poa_exclusion_set]
+    excluded_entries = [e for e in all_secondary_entries if e["code"] in poa_exclusion_set]
     explanation_en: List[str] = []
     explanation_ar: List[str] = []
     principal_soi = round_half_up(principal_entry["soi_weight"] * 0.5) if principal_entry else 0
@@ -176,6 +185,16 @@ def group_encounter(
         codes_joined = ", ".join(e["code"] for e in secondary_entries)
         explanation_en.append(f"{len(secondary_entries)} secondary diagnosis(es) ({codes_joined}) add {soi_sum} SOI / {rom_sum} ROM point(s).")
         explanation_ar.append(f"{len(secondary_entries)} تشخيص(ات) ثانوية ({codes_joined}) تضيف {soi_sum} نقطة شدة و {rom_sum} نقطة خطر وفاة.")
+    if excluded_entries:
+        excluded_codes_joined = ", ".join(e["code"] for e in excluded_entries)
+        explanation_en.append(
+            f"{len(excluded_entries)} secondary diagnosis(es) ({excluded_codes_joined}) were confirmed as not present "
+            "on admission — excluded from the admission-severity score and flagged for hospital-acquired complication review."
+        )
+        explanation_ar.append(
+            f"{len(excluded_entries)} تشخيص(ات) ثانوية ({excluded_codes_joined}) تم تأكيد عدم وجودها عند الدخول — "
+            "استُبعدت من درجة شدة الحالة عند الدخول وتم وضع علامة عليها لمراجعة المضاعفات المكتسبة داخل المستشفى."
+        )
     if age is not None:
         if age >= 75:
             rom_score += 2

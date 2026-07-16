@@ -135,6 +135,22 @@ def test_run_coding_engine_bilingual_descriptions_present():
     assert pneumonia["term_ar"] is not None
 
 
+def test_run_coding_engine_principal_override_forces_coder_choice():
+    # Sepsis would win automatically; principal_override lets a coder
+    # confirm the cough/pneumonia complaint is actually the reason for the visit.
+    note = "Patient with cough and sepsis, unspecified organism."
+    automatic = run_coding_engine(note)
+    assert automatic["principal_code"] == "A41.9"
+    overridden = run_coding_engine(note, principal_override="R05")
+    assert overridden["principal_code"] == "R05"
+    assert "A41.9" in overridden["secondary_codes"]
+
+
+def test_run_coding_engine_principal_override_ignored_when_code_not_matched():
+    result = run_coding_engine("Patient with cough.", principal_override="Z99.99")
+    assert result["principal_code"] == "R05"
+
+
 # --- Automation phase classification ---
 @pytest.mark.parametrize(
     "confidence,visit_complexity,expected_phase",
@@ -173,6 +189,19 @@ def test_group_encounter_age_raises_rom():
     young = group_encounter("I21.9", [], age=40, encounter_type="ED")
     elderly = group_encounter("I21.9", [], age=80, encounter_type="ED")
     assert elderly["rom"] >= young["rom"]
+
+
+def test_group_encounter_poa_exclusion_drops_soi_rom_credit():
+    # A41.9 (sepsis) and N18.9 (CKD) both carry real soi/rom weight, so
+    # excluding one via poa_exclusions must lower the score versus crediting both.
+    credited = group_encounter("J18.9", ["A41.9", "N18.9"], encounter_type="INPATIENT")
+    excluded = group_encounter("J18.9", ["A41.9", "N18.9"], encounter_type="INPATIENT", poa_exclusions=["N18.9"])
+    assert excluded["soi"] <= credited["soi"]
+
+
+def test_group_encounter_poa_exclusion_appears_in_explanation():
+    drg = group_encounter("J18.9", ["N18.9"], encounter_type="INPATIENT", poa_exclusions=["N18.9"])
+    assert any("N18.9" in line and "not present on admission" in line for line in drg["explanation"]["en"])
 
 
 def test_compute_case_mix_index():

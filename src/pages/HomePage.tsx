@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
@@ -18,7 +19,7 @@ import { LanguageToggle } from '@/components/LanguageToggle';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import { motion } from 'framer-motion';
-import type { CodingJob, HospitalBranchId } from '@shared/types';
+import type { CodingJob, HospitalBranchId, RefinementAnswer } from '@shared/types';
 import type { DemoAnalysisResult } from '@shared/coding-engine';
 import { HOSPITAL_BRANCHES } from '@shared/hospital-branches';
 import { cn } from '@/lib/utils';
@@ -67,7 +68,8 @@ export function HomePage() {
   const [priorResult, setPriorResult] = useState<DemoAnalysisResult | null>(null);
   const [wizardActive, setWizardActive] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
-  const [wizardAnswers, setWizardAnswers] = useState<string[]>([]);
+  const [wizardAnswers, setWizardAnswers] = useState<RefinementAnswer[]>([]);
+  const [ageInput, setAgeInput] = useState('');
   const [isRefining, setIsRefining] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
@@ -79,14 +81,16 @@ export function HomePage() {
     setWizardActive(false);
     setWizardStep(0);
     setWizardAnswers([]);
+    setAgeInput('');
     setNoteText('');
   };
   const startRefinementWizard = () => {
     setWizardStep(0);
     setWizardAnswers([]);
+    setAgeInput('');
     setWizardActive(true);
   };
-  const submitRefinement = async (answers: string[]) => {
+  const submitRefinement = async (answers: RefinementAnswer[]) => {
     setWizardActive(false);
     if (answers.length === 0) return; // every question was skipped — nothing to refine
     setIsRefining(true);
@@ -106,9 +110,13 @@ export function HomePage() {
       setIsRefining(false);
     }
   };
-  const answerWizardQuestion = (answerText: string | null) => {
-    const nextAnswers = answerText ? [...wizardAnswers, answerText] : wizardAnswers;
+  const answerWizardQuestion = (value: string | null) => {
+    const question = demoResult?.questions[wizardStep];
+    const nextAnswers = value && question
+      ? [...wizardAnswers, { question_id: question.id, kind: question.kind, target_code: question.target_code, value }]
+      : wizardAnswers;
     setWizardAnswers(nextAnswers);
+    setAgeInput('');
     const totalQuestions = demoResult?.questions.length ?? 0;
     if (wizardStep + 1 < totalQuestions) {
       setWizardStep(wizardStep + 1);
@@ -302,19 +310,42 @@ export function HomePage() {
                         {isRtl ? demoResult.questions[wizardStep].prompt_ar : demoResult.questions[wizardStep].prompt_en}
                       </p>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {demoResult.questions[wizardStep].options.map((opt) => (
+                    {demoResult.questions[wizardStep].input_type === 'number' ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          type="number"
+                          min={0}
+                          max={120}
+                          value={ageInput}
+                          onChange={(e) => setAgeInput(e.target.value)}
+                          placeholder={isRtl ? 'العمر بالسنوات' : 'Age in years'}
+                          className="max-w-[160px] min-h-[44px]"
+                          autoFocus
+                        />
                         <Button
-                          key={opt.answer_text}
                           type="button"
-                          variant="outline"
-                          className="justify-start h-auto py-3 text-start min-h-[44px]"
-                          onClick={() => answerWizardQuestion(opt.answer_text)}
+                          onClick={() => ageInput && answerWizardQuestion(ageInput)}
+                          disabled={!ageInput}
+                          className="min-h-[44px]"
                         >
-                          {isRtl ? opt.label_ar : opt.label_en}
+                          {isRtl ? 'التالي' : 'Next'}
                         </Button>
-                      ))}
-                    </div>
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {demoResult.questions[wizardStep].options.map((opt) => (
+                          <Button
+                            key={opt.answer_text}
+                            type="button"
+                            variant="outline"
+                            className="justify-start h-auto py-3 text-start min-h-[44px]"
+                            onClick={() => answerWizardQuestion(opt.answer_text)}
+                          >
+                            {isRtl ? opt.label_ar : opt.label_en}
+                          </Button>
+                        ))}
+                      </div>
+                    )}
                   </>
                 )}
               </div>

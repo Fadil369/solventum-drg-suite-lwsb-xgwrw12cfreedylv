@@ -136,6 +136,34 @@ export interface RefinementQuestion {
   prompt_ar: string;
   severity: 'info' | 'warning' | 'critical';
   options: RefinementOption[];
+  /** What category of gap this question resolves, so the refine endpoint
+   * routes the answer to the right place instead of always treating it as
+   * free text appended to the note:
+   * - 'specificity' / 'laterality' (existing): the resolving keyword is
+   *   appended to the note and the engine re-runs on the enriched text.
+   * - 'age': the patient's age, a structured input that materially affects
+   *   the Risk of Mortality (ROM) score.
+   * - 'poa': whether a secondary diagnosis was Present On Admission or
+   *   developed during the stay — resolves the clinical *sequence* of
+   *   events, since a hospital-acquired complication shouldn't retroactively
+   *   inflate the admission-severity score the way a comorbidity does.
+   * - 'principal': which of two closely-ranked diagnoses is the true reason
+   *   for the encounter, when the deterministic ranking is ambiguous. */
+  kind: 'specificity' | 'laterality' | 'age' | 'poa' | 'principal';
+  /** The diagnosis/procedure code this question concerns (laterality, poa). */
+  target_code?: string;
+  /** 'number' renders a numeric input instead of the option buttons — used only by 'age'. */
+  input_type?: 'choice' | 'number';
+}
+/** A single answer submitted from the refinement wizard, tagged with the
+ * question's `kind` so the server knows how to apply it (append to the note,
+ * set structured age, record a POA decision, or override the principal
+ * diagnosis) rather than treating every answer as interchangeable free text. */
+export interface RefinementAnswer {
+  question_id: string;
+  kind: RefinementQuestion['kind'];
+  target_code?: string;
+  value: string;
 }
 // --- BRAINSAIT APR-DRG GROUPER RESULT ---
 // A deterministic, explainable implementation of the APR-DRG methodology:
@@ -182,6 +210,25 @@ export interface CodingJob {
   /** Outstanding specificity gaps a coder can resolve via the sequenced
    * refinement flow (POST /coding-jobs/:id/refine) — see RefinementQuestion. */
   questions?: RefinementQuestion[];
+  /** Patient age in years, captured at ingest or via the refinement wizard's
+   * age question — persisted here (previously only used transiently at
+   * ingest and lost on every subsequent refine) so age-driven ROM scoring
+   * survives re-analysis. */
+  age?: number;
+  /** The encounter type this job was coded against — persisted for the same
+   * reason as age: refine() re-runs the engine and needs it, not just the
+   * one-time ingest call. */
+  encounter_type?: 'INPATIENT' | 'OUTPATIENT' | 'ED';
+  /** Present-On-Admission decisions for secondary diagnoses, collected via
+   * the refinement wizard's 'poa' questions. A diagnosis marked 'developed'
+   * (i.e. arose during this stay rather than being present at admission) is
+   * excluded from the admission-severity (SOI/ROM) score — see
+   * groupEncounter's poaExclusions. */
+  poa?: Record<string, 'present' | 'developed'>;
+  /** Set once a coder has explicitly confirmed the principal diagnosis via
+   * the refinement wizard's 'principal' question — suppresses that question
+   * from being asked again on subsequent refine passes. */
+  principal_confirmed?: boolean;
 }
 export interface Nudge {
     id: string;

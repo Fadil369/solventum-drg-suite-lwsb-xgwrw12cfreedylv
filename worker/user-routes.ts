@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity, AccountEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
-import type { CodingJob, Analytics, NphiesLiveStatus, NphiesBranchStatus, HospitalBranchId } from "@shared/types";
+import type { CodingJob, Analytics, NphiesLiveStatus, NphiesBranchStatus, HospitalBranchId, RefinementAnswer } from "@shared/types";
 import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType, type DemoAnalysisResult, type AiClinicalSummary } from "@shared/coding-engine";
 import { generateCdiNudges, generateRefinementQuestions } from "@shared/cdi-rules";
 import { computeCaseMixIndex, computeDepartmentDistribution, groupEncounter } from "@shared/drg-grouper";
@@ -23,6 +23,60 @@ function getAuthSecret(env: Env): string {
   const secret = (env as unknown as { AUTH_SECRET?: string }).AUTH_SECRET;
   if (!secret) throw new Error('AUTH_SECRET is not configured on this Worker (wrangler secret put AUTH_SECRET)');
   return secret;
+}
+const REFINEMENT_ANSWER_KINDS = new Set(['specificity', 'laterality', 'age', 'poa', 'principal']);
+/** Validates and narrows untrusted request-body JSON into RefinementAnswer[],
+ * silently dropping any malformed entries rather than hard-failing the whole
+ * request — a partially-answered wizard submission should still apply the
+ * answers that are well-formed. */
+function parseRefinementAnswers(raw: unknown): RefinementAnswer[] {
+  if (!Array.isArray(raw)) return [];
+  const out: RefinementAnswer[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue;
+    const { question_id, kind, target_code, value } = item as Record<string, unknown>;
+    if (typeof value !== 'string' || !value.trim()) continue;
+    if (typeof kind !== 'string' || !REFINEMENT_ANSWER_KINDS.has(kind)) continue;
+    out.push({
+      question_id: typeof question_id === 'string' ? question_id : '',
+      kind: kind as RefinementAnswer['kind'],
+      target_code: typeof target_code === 'string' ? target_code : undefined,
+      value: value.trim(),
+    });
+  }
+  return out.slice(0, 20);
+}
+interface AppliedRefinementAnswers {
+  /** Resolving keywords from specificity/laterality answers, appended to the note as clarifying text. */
+  textAnswers: string[];
+  age?: number;
+  poa: Record<string, 'present' | 'developed'>;
+  poaExclusions: string[];
+  principalOverride?: string;
+}
+/** Routes each answer to where it actually affects the coding result, instead
+ * of treating every answer as interchangeable free text: specificity/
+ * laterality answers still append to the note, but age/POA/principal answers
+ * feed structured fields the deterministic engine and grouper read directly. */
+function applyRefinementAnswers(answers: RefinementAnswer[], base: { age?: number; poa?: Record<string, 'present' | 'developed'> }): AppliedRefinementAnswers {
+  const textAnswers: string[] = [];
+  let age = base.age;
+  const poa: Record<string, 'present' | 'developed'> = { ...(base.poa ?? {}) };
+  let principalOverride: string | undefined;
+  for (const a of answers) {
+    if (a.kind === 'specificity' || a.kind === 'laterality') {
+      textAnswers.push(a.value);
+    } else if (a.kind === 'age') {
+      const n = Number(a.value);
+      if (Number.isFinite(n) && n >= 0 && n <= 120) age = n;
+    } else if (a.kind === 'poa' && a.target_code && (a.value === 'present' || a.value === 'developed')) {
+      poa[a.target_code] = a.value;
+    } else if (a.kind === 'principal') {
+      principalOverride = a.value;
+    }
+  }
+  const poaExclusions = Object.entries(poa).filter(([, v]) => v === 'developed').map(([code]) => code);
+  return { textAnswers, age, poa, poaExclusions, principalOverride };
 }
 // Workers AI, called over the REST API (not a native binding) because
 // wrangler.jsonc is locked and can't be edited to add one. CF_AI_TOKEN is a
@@ -221,10 +275,19 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   // passed in — the refine flow just calls this again on note text enriched
   // with the physician's question answers, so "answering a question"
   // literally re-runs the same real engine rather than faking an update.
-  async function runDemoAnalysis(clinical_note: string, env: Env): Promise<DemoAnalysisResult> {
-    const engineResult = runCodingEngine(clinical_note);
-    const nudges = generateCdiNudges(clinical_note, 'demo');
-    const questions = generateRefinementQuestions(clinical_note);
+  async function runDemoAnalysis(
+    clinical_note: string,
+    env: Env,
+    applied: Partial<AppliedRefinementAnswers> = {}
+  ): Promise<DemoAnalysisResult> {
+    const { age, poaExclusions, principalOverride, poa = {} } = applied;
+    const engineResult = runCodingEngine(clinical_note, { age, poaExclusions, principalOverride });
+    const nudges = generateCdiNudges(clinical_note, 'demo', { age });
+    const questions = generateRefinementQuestions(clinical_note, {
+      age,
+      resolvedPoaCodes: Object.keys(poa),
+      principalConfirmed: !!principalOverride,
+    });
     const ai_summary = await generateAiClinicalSummary(clinical_note, env);
     return { ...engineResult, nudges, questions, ai_summary };
   }
@@ -255,24 +318,21 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   app.post('/api/demo/refine-note', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const clinical_note: string = body?.clinical_note;
-    const answers: unknown = body?.answers;
     if (!isStr(clinical_note) || !clinical_note.trim()) return bad(c, 'clinical_note is required');
     if (clinical_note.length > DEMO_NOTE_MAX_LENGTH) {
       return bad(c, `clinical_note must be ${DEMO_NOTE_MAX_LENGTH} characters or fewer for the public demo — sign in for the full workspace`);
     }
-    if (!Array.isArray(answers) || answers.some((a) => typeof a !== 'string')) {
-      return bad(c, 'answers must be an array of strings');
-    }
-    const cleanAnswers = (answers as string[]).map((a) => a.trim()).filter(Boolean).slice(0, 20);
-    if (cleanAnswers.length === 0) return bad(c, 'at least one answer is required');
-    const enrichedNote = cleanAnswers.length > 0
-      ? `${clinical_note}\n\nAdditional clarification: ${cleanAnswers.join('. ')}.`
+    const answers = parseRefinementAnswers(body?.answers);
+    if (answers.length === 0) return bad(c, 'at least one answer is required');
+    const applied = applyRefinementAnswers(answers, {});
+    const enrichedNote = applied.textAnswers.length > 0
+      ? `${clinical_note}\n\nAdditional clarification: ${applied.textAnswers.join('. ')}.`
       : clinical_note;
     if (enrichedNote.length > DEMO_NOTE_MAX_LENGTH * 2) {
       return bad(c, 'combined note and answers are too long for the public demo');
     }
     try {
-      return ok(c, await runDemoAnalysis(enrichedNote, c.env));
+      return ok(c, await runDemoAnalysis(enrichedNote, c.env, applied));
     } catch (err) {
       console.error('demo/refine-note error', err);
       return bad(c, 'failed to refine analysis');
@@ -467,6 +527,8 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         detected_language: engineResult.detected_language,
         ai_summary,
         questions,
+        age,
+        encounter_type,
       };
       const newAnalytics: Analytics = {
         id: crypto.randomUUID(),
@@ -566,10 +628,14 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       principal_code = ranked[0].code;
     }
     if (principal_code) {
+      const poaExclusions = Object.entries(state.poa ?? {}).filter(([, v]) => v === 'developed').map(([c]) => c);
       drg = groupEncounter({
         principalCode: principal_code,
         secondaryCodes: remaining.filter((sc) => sc.code !== principal_code).map((sc) => sc.code),
         procedureCodes: (state.suggested_procedures ?? []).map((p) => p.code),
+        age: state.age,
+        encounterType: state.encounter_type,
+        poaExclusions,
       });
     }
     const suggested_codes = remaining.map((sc) => ({ ...sc, is_principal: sc.code === principal_code }));
@@ -590,18 +656,25 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     const state = await job.getState();
     if (!isStr(state.source_text) || !state.source_text.trim()) return bad(c, 'this coding job has no source text to refine');
     const body = await c.req.json().catch(() => ({}));
-    const answers: unknown = body?.answers;
-    if (!Array.isArray(answers) || answers.some((a) => typeof a !== 'string')) return bad(c, 'answers must be an array of strings');
-    const cleanAnswers = (answers as string[]).map((a) => a.trim()).filter(Boolean).slice(0, 20);
-    if (cleanAnswers.length === 0) return bad(c, 'at least one answer is required');
-    const enrichedNote = `${state.source_text}\n\nAdditional clarification: ${cleanAnswers.join('. ')}.`;
-    const engineResult = runCodingEngine(enrichedNote);
+    const answers = parseRefinementAnswers(body?.answers);
+    if (answers.length === 0) return bad(c, 'at least one answer is required');
+    const { textAnswers, age, poa, poaExclusions, principalOverride } = applyRefinementAnswers(answers, { age: state.age, poa: state.poa });
+    const enrichedNote = textAnswers.length > 0
+      ? `${state.source_text}\n\nAdditional clarification: ${textAnswers.join('. ')}.`
+      : state.source_text;
+    const engineResult = runCodingEngine(enrichedNote, { age, encounterType: state.encounter_type, poaExclusions, principalOverride });
     const { phase, status } = classifyAutomationPhase(engineResult.confidence_score, 'standard');
     const [nudges, ai_summary] = await Promise.all([
-      Promise.resolve(generateCdiNudges(enrichedNote, state.encounter_id)),
+      Promise.resolve(generateCdiNudges(enrichedNote, state.encounter_id, { age, encounterType: state.encounter_type })),
       generateAiClinicalSummary(enrichedNote, c.env),
     ]);
-    const questions = generateRefinementQuestions(enrichedNote);
+    const principal_confirmed = !!principalOverride || !!state.principal_confirmed;
+    const questions = generateRefinementQuestions(enrichedNote, {
+      age,
+      encounterType: state.encounter_type,
+      resolvedPoaCodes: Object.keys(poa),
+      principalConfirmed: principal_confirmed,
+    });
     const updated: Partial<CodingJob> = {
       source_text: enrichedNote,
       suggested_codes: engineResult.suggested_codes,
@@ -613,6 +686,9 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       detected_language: engineResult.detected_language,
       ai_summary,
       questions,
+      age,
+      poa,
+      principal_confirmed,
       // A job already accepted/dropped by a coder keeps that status — refining
       // it shouldn't silently revert an explicit human decision.
       ...(state.status === 'AUTO_DROP' ? {} : { status, phase }),

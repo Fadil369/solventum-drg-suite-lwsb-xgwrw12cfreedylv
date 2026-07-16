@@ -113,6 +113,13 @@ export interface GroupEncounterParams {
   procedureCodes?: string[];
   age?: number;
   encounterType?: 'INPATIENT' | 'OUTPATIENT' | 'ED';
+  /** Secondary diagnosis codes confirmed (via the refinement wizard's POA
+   * questions) to have developed *during* this stay rather than being
+   * present at admission. These are still listed among the secondary
+   * diagnoses for documentation completeness, but excluded from the
+   * SOI/ROM contribution — a hospital-acquired complication shouldn't
+   * retroactively justify how severe the case looked on admission. */
+  poaExclusions?: string[];
 }
 function tierFromScore(score: number): 1 | 2 | 3 | 4 {
   if (score >= 5) return 4;
@@ -126,12 +133,16 @@ export function groupEncounter({
   procedureCodes = [],
   age,
   encounterType = 'INPATIENT',
+  poaExclusions = [],
 }: GroupEncounterParams): DrgResult {
   const principalEntry = findLexiconEntry(principalCode);
   const family = principalEntry?.drg_family ?? '999';
   const familyMeta = DRG_FAMILY_TABLE[family] ?? DRG_FAMILY_TABLE['999'];
   const uniqueSecondary = Array.from(new Set(secondaryCodes.filter((c) => c !== principalCode)));
   const secondaryEntries = uniqueSecondary.map((c) => findLexiconEntry(c)).filter((e): e is NonNullable<typeof e> => Boolean(e));
+  const poaExclusionSet = new Set(poaExclusions);
+  const creditedEntries = secondaryEntries.filter((e) => !poaExclusionSet.has(e.code));
+  const excludedEntries = secondaryEntries.filter((e) => poaExclusionSet.has(e.code));
   const explanationEn: string[] = [];
   const explanationAr: string[] = [];
   const principalSoiContribution = principalEntry ? Math.round(principalEntry.soi_weight * 0.5) : 0;
@@ -143,13 +154,17 @@ export function groupEncounter({
     explanationEn.push(`No lexicon match for principal code ${principalCode}; falling back to family ${family}.`);
     explanationAr.push(`لا توجد مطابقة في المعجم للرمز الأساسي ${principalCode}؛ تم استخدام الفئة الافتراضية ${family}.`);
   }
-  let soiScore = principalSoiContribution + secondaryEntries.reduce((sum, e) => sum + e.soi_weight, 0);
-  let romScore = principalRomContribution + secondaryEntries.reduce((sum, e) => sum + e.rom_weight, 0);
-  if (secondaryEntries.length > 0) {
-    const soiSum = secondaryEntries.reduce((sum, e) => sum + e.soi_weight, 0);
-    const romSum = secondaryEntries.reduce((sum, e) => sum + e.rom_weight, 0);
-    explanationEn.push(`${secondaryEntries.length} secondary diagnosis(es) (${secondaryEntries.map((e) => e.code).join(', ')}) add ${soiSum} SOI / ${romSum} ROM point(s).`);
-    explanationAr.push(`${secondaryEntries.length} تشخيص(ات) ثانوية (${secondaryEntries.map((e) => e.code).join(', ')}) تضيف ${soiSum} نقطة شدة و ${romSum} نقطة خطر وفاة.`);
+  let soiScore = principalSoiContribution + creditedEntries.reduce((sum, e) => sum + e.soi_weight, 0);
+  let romScore = principalRomContribution + creditedEntries.reduce((sum, e) => sum + e.rom_weight, 0);
+  if (creditedEntries.length > 0) {
+    const soiSum = creditedEntries.reduce((sum, e) => sum + e.soi_weight, 0);
+    const romSum = creditedEntries.reduce((sum, e) => sum + e.rom_weight, 0);
+    explanationEn.push(`${creditedEntries.length} secondary diagnosis(es) (${creditedEntries.map((e) => e.code).join(', ')}) add ${soiSum} SOI / ${romSum} ROM point(s).`);
+    explanationAr.push(`${creditedEntries.length} تشخيص(ات) ثانوية (${creditedEntries.map((e) => e.code).join(', ')}) تضيف ${soiSum} نقطة شدة و ${romSum} نقطة خطر وفاة.`);
+  }
+  if (excludedEntries.length > 0) {
+    explanationEn.push(`${excludedEntries.length} secondary diagnosis(es) (${excludedEntries.map((e) => e.code).join(', ')}) were confirmed as not present on admission — excluded from the admission-severity score and flagged for hospital-acquired complication review.`);
+    explanationAr.push(`${excludedEntries.length} تشخيص(ات) ثانوية (${excludedEntries.map((e) => e.code).join(', ')}) تم تأكيد عدم وجودها عند الدخول — استُبعدت من درجة شدة الحالة عند الدخول وتم وضع علامة عليها لمراجعة المضاعفات المكتسبة داخل المستشفى.`);
   }
   if (typeof age === 'number') {
     if (age >= 75) {

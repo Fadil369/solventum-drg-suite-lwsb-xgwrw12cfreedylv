@@ -16,7 +16,8 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
-import type { CodingJob, EncounterWithPatient } from '@shared/types';
+import { Input } from '@/components/ui/input';
+import type { CodingJob, EncounterWithPatient, RefinementAnswer } from '@shared/types';
 import { findBranch } from '@shared/hospital-branches';
 import { motion, AnimatePresence } from 'framer-motion';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -98,9 +99,10 @@ export function CodingWorkspace() {
   });
   const [wizardActive, setWizardActive] = useState(false);
   const [wizardStep, setWizardStep] = useState(0);
-  const [wizardAnswers, setWizardAnswers] = useState<string[]>([]);
+  const [wizardAnswers, setWizardAnswers] = useState<RefinementAnswer[]>([]);
+  const [ageInput, setAgeInput] = useState('');
   const refineMutation = useMutation({
-    mutationFn: (answers: string[]) => api<CodingJob>(`/api/coding-jobs/${codingJob!.id}/refine`, { method: 'POST', body: JSON.stringify({ answers }) }),
+    mutationFn: (answers: RefinementAnswer[]) => api<CodingJob>(`/api/coding-jobs/${codingJob!.id}/refine`, { method: 'POST', body: JSON.stringify({ answers }) }),
     onSuccess: (updated) => {
       setCodingJob(updated);
       toast.success(isRtl ? 'تم تحسين الترميز بناءً على إجاباتك.' : 'Coding refined based on your answers.');
@@ -112,11 +114,16 @@ export function CodingWorkspace() {
   const startRefinementWizard = () => {
     setWizardStep(0);
     setWizardAnswers([]);
+    setAgeInput('');
     setWizardActive(true);
   };
-  const answerWizardQuestion = (answerText: string | null) => {
-    const nextAnswers = answerText ? [...wizardAnswers, answerText] : wizardAnswers;
+  const submitWizardAnswer = (value: string | null) => {
+    const question = codingJob?.questions?.[wizardStep];
+    const nextAnswers = value && question
+      ? [...wizardAnswers, { question_id: question.id, kind: question.kind, target_code: question.target_code, value }]
+      : wizardAnswers;
     setWizardAnswers(nextAnswers);
+    setAgeInput('');
     const totalQuestions = codingJob?.questions?.length ?? 0;
     if (wizardStep + 1 < totalQuestions) {
       setWizardStep(wizardStep + 1);
@@ -494,24 +501,47 @@ export function CodingWorkspace() {
                     {isRtl ? codingJob.questions[wizardStep].prompt_ar : codingJob.questions[wizardStep].prompt_en}
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  {codingJob.questions[wizardStep].options.map((opt) => (
+                {codingJob.questions[wizardStep].input_type === 'number' ? (
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min={0}
+                      max={120}
+                      value={ageInput}
+                      onChange={(e) => setAgeInput(e.target.value)}
+                      placeholder={isRtl ? 'العمر بالسنوات' : 'Age in years'}
+                      className="max-w-[160px] min-h-[44px]"
+                      autoFocus
+                    />
                     <Button
-                      key={opt.answer_text}
                       type="button"
-                      variant="outline"
-                      className="justify-start h-auto py-3 text-start min-h-[44px]"
-                      onClick={() => answerWizardQuestion(opt.answer_text)}
+                      onClick={() => ageInput && submitWizardAnswer(ageInput)}
+                      disabled={!ageInput}
+                      className="min-h-[44px]"
                     >
-                      {isRtl ? opt.label_ar : opt.label_en}
+                      {isRtl ? 'التالي' : 'Next'}
                     </Button>
-                  ))}
-                </div>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {codingJob.questions[wizardStep].options.map((opt) => (
+                      <Button
+                        key={opt.answer_text}
+                        type="button"
+                        variant="outline"
+                        className="justify-start h-auto py-3 text-start min-h-[44px]"
+                        onClick={() => submitWizardAnswer(opt.answer_text)}
+                      >
+                        {isRtl ? opt.label_ar : opt.label_en}
+                      </Button>
+                    ))}
+                  </div>
+                )}
               </>
             )}
           </div>
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => answerWizardQuestion(null)} className="min-h-[44px]">
+            <Button type="button" variant="ghost" onClick={() => submitWizardAnswer(null)} className="min-h-[44px]">
               {isRtl ? 'تخطي هذا السؤال' : 'Skip this question'}
             </Button>
           </DialogFooter>
