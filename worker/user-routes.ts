@@ -3,7 +3,7 @@ import type { Env } from './core-utils';
 import { UserEntity, ChatBoardEntity, PatientEntity, ClaimEntity, CodingJobEntity, EncounterEntity, NudgeEntity, AuditLogEntity, PaymentEntity, AnalyticsEntity, AccountEntity } from "./entities";
 import { ok, bad, notFound, isStr } from './core-utils';
 import type { CodingJob, Analytics, NphiesLiveStatus, NphiesBranchStatus, HospitalBranchId } from "@shared/types";
-import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType, type DemoAnalysisResult } from "@shared/coding-engine";
+import { runCodingEngine, classifyAutomationPhase, normalizeEncounterType, type DemoAnalysisResult, type AiClinicalSummary } from "@shared/coding-engine";
 import { generateCdiNudges } from "@shared/cdi-rules";
 import { computeCaseMixIndex, computeDepartmentDistribution } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
@@ -22,6 +22,77 @@ function getAuthSecret(env: Env): string {
   const secret = (env as unknown as { AUTH_SECRET?: string }).AUTH_SECRET;
   if (!secret) throw new Error('AUTH_SECRET is not configured on this Worker (wrangler secret put AUTH_SECRET)');
   return secret;
+}
+// Workers AI, called over the REST API (not a native binding) because
+// wrangler.jsonc is locked and can't be edited to add one. CF_AI_TOKEN is a
+// Cloudflare API token stored as a Worker secret — it never reaches the
+// client and is used for nothing beyond this one call.
+const CF_ACCOUNT_ID = 'd7b99530559ab4f2545e9bdc72a7ab9b';
+const AI_SUMMARY_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+function extractJsonObject(text: string): string {
+  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fenced ? fenced[1] : text;
+  const start = candidate.indexOf('{');
+  const end = candidate.lastIndexOf('}');
+  if (start === -1 || end === -1 || end < start) return candidate;
+  return candidate.slice(start, end + 1);
+}
+// Best-effort: returns null (never throws) on any failure — missing/invalid
+// credential, upstream error, timeout, or a malformed model response — so an
+// AI outage never blocks the deterministic coding/DRG result, which is the
+// actual, explainable source of truth this system is built on.
+async function generateAiClinicalSummary(clinicalNote: string, env: Env): Promise<AiClinicalSummary | null> {
+  const token = (env as unknown as { CF_AI_TOKEN?: string }).CF_AI_TOKEN;
+  if (!token) return null;
+  const systemPrompt = `You are a clinical documentation assistant supporting a medical coder. Given a clinical note (which may mix Arabic and English), extract ONLY what is explicitly stated:
+1. "timeline": a short chronological list of the clinical events/findings documented in the note, in the order they're described (use phrases like "on presentation" or "during admission" if no explicit dates/times are given — never invent a specific date or time that isn't in the text).
+2. "impression": one concise paragraph giving a plain-language diagnostic impression of the most likely primary condition(s) suggested by the documented findings.
+Do not add, infer, or assume any clinical detail that is not stated or directly implied by the text. This is an assistive summary for a human coder to review, not a diagnosis. If the note is too sparse to summarize meaningfully, say so plainly in "impression" and return an empty timeline array.
+Respond in the same language(s) as the note (English, Arabic, or a natural mix if the note is code-switched).
+Respond with ONLY a single JSON object of the exact shape {"timeline": string[], "impression": string} — no markdown, no code fences, no extra text.`;
+  try {
+    const res = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/ai/run/${AI_SUMMARY_MODEL}`,
+      {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: clinicalNote },
+          ],
+          max_tokens: 600,
+        }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    if (!res.ok) {
+      console.error('AI summary request failed', res.status, await res.text().catch(() => ''));
+      return null;
+    }
+    const json = (await res.json()) as any;
+    // The AI Gateway sometimes pre-parses a JSON-shaped reply into
+    // result.response as an object; other times result.response (or
+    // result.choices[0].message.content) is the raw string the model wrote.
+    // Handle both instead of assuming either shape.
+    const rawResponse = json?.result?.response;
+    const parsed: any = rawResponse && typeof rawResponse === 'object'
+      ? rawResponse
+      : JSON.parse(extractJsonObject(
+          typeof rawResponse === 'string' ? rawResponse : String(json?.result?.choices?.[0]?.message?.content ?? '')
+        ));
+    if (!Array.isArray(parsed?.timeline) || typeof parsed?.impression !== 'string') {
+      console.error('AI summary response failed schema validation', JSON.stringify(parsed).slice(0, 300));
+      return null;
+    }
+    return {
+      timeline: parsed.timeline.filter((line: unknown): line is string => typeof line === 'string').slice(0, 12),
+      impression: parsed.impression.slice(0, 1000),
+    };
+  } catch (err) {
+    console.error('AI summary generation failed', err);
+    return null;
+  }
 }
 export function userRoutes(app: Hono<{ Bindings: Env }>) {
   app.use('/api/*', async (c, next) => {
@@ -89,7 +160,8 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       // is safe here: nudges are never persisted, it only shapes the (also
       // ephemeral) nudge id string.
       const nudges = generateCdiNudges(clinical_note, 'demo');
-      const result: DemoAnalysisResult = { ...engineResult, nudges };
+      const ai_summary = await generateAiClinicalSummary(clinical_note, c.env);
+      const result: DemoAnalysisResult = { ...engineResult, nudges, ai_summary };
       return ok(c, result);
     } catch (err) {
       console.error('demo/analyze-note error', err);

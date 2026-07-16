@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import {
   Zap, ShieldCheck, ArrowRight, Database, Scale, Stethoscope, Lightbulb, LogIn, RotateCcw, Building2,
-  Activity, HeartPulse, Scale3d, Scissors, Languages, TrendingUp, CheckCircle2,
+  Activity, HeartPulse, Scale3d, Scissors, Languages, TrendingUp, CheckCircle2, Upload, Sparkles, Clock, AlertCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -63,12 +63,47 @@ export function HomePage() {
   const [branch, setBranch] = useState<HospitalBranchId | ''>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [demoResult, setDemoResult] = useState<DemoAnalysisResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
   const { t, language, isRtl } = useLanguage();
   const isAuthenticated = useAuth((s) => s.isAuthenticated);
   const resetModal = () => {
     setDemoResult(null);
     setNoteText('');
+  };
+  // Plain text only for now — real PDF/image OCR needs a dedicated parsing
+  // pipeline this pass doesn't build; reading a .txt file client-side is
+  // simple, safe (no server-side file handling of untrusted uploads at all),
+  // and covers the common case of a report already exported/copied as text.
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith('.txt') && file.type !== 'text/plain') {
+      toast.error(isRtl ? 'صيغة الملف غير مدعومة' : 'Unsupported file type', {
+        description: isRtl
+          ? 'يدعم الرفع حالياً ملفات نصية (.txt) فقط. الصق النص مباشرة للصيغ الأخرى.'
+          : 'Upload currently supports plain text (.txt) files only. Paste the text directly for other formats.',
+      });
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+      const text = String(reader.result ?? '');
+      const truncated = text.length > DEMO_NOTE_MAX_LENGTH;
+      setNoteText(text.slice(0, DEMO_NOTE_MAX_LENGTH));
+      if (truncated) {
+        toast.info(isRtl ? 'تم اقتطاع النص' : 'Text truncated', {
+          description: isRtl
+            ? `تم الاحتفاظ بأول ${DEMO_NOTE_MAX_LENGTH} حرفًا فقط لمعاينة العرض التجريبي.`
+            : `Only the first ${DEMO_NOTE_MAX_LENGTH} characters were kept for the public preview.`,
+        });
+      }
+    };
+    reader.onerror = () => {
+      toast.error(isRtl ? 'فشلت قراءة الملف.' : 'Failed to read the file.');
+    };
+    reader.readAsText(file);
   };
   const handleAnalyze = async () => {
     if (!noteText.trim()) {
@@ -256,6 +291,33 @@ export function HomePage() {
                     </Accordion>
                   )}
                 </div>
+                {demoResult.ai_summary && (
+                  <div className="rounded-lg border border-violet-500/20 bg-violet-500/5 dark:bg-violet-500/10 p-4 space-y-3">
+                    <p className="text-sm font-medium flex items-center gap-1.5 text-violet-700 dark:text-violet-300">
+                      <Sparkles className="h-4 w-4" />{isRtl ? 'الملخص السريري بالذكاء الاصطناعي' : 'AI Clinical Summary'}
+                    </p>
+                    <p className="text-xs text-muted-foreground flex items-start gap-1.5">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                      {isRtl
+                        ? 'ملخص مساعد تم إنشاؤه بالذكاء الاصطناعي — وليس تشخيصًا. يرجى التحقق دائمًا من الملاحظة الأصلية.'
+                        : 'AI-generated assistive summary — not a diagnosis. Always verify against the source note.'}
+                    </p>
+                    {demoResult.ai_summary.timeline.length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-muted-foreground mb-1 flex items-center gap-1">
+                          <Clock className="h-3 w-3" />{isRtl ? 'تسلسل الأحداث السريرية' : 'Clinical Event Sequence'}
+                        </p>
+                        <ol className="text-sm space-y-1 list-decimal ps-4" dir="auto">
+                          {demoResult.ai_summary.timeline.map((event, i) => <li key={i}>{event}</li>)}
+                        </ol>
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-xs font-medium text-muted-foreground mb-1">{isRtl ? 'الانطباع التشخيصي' : 'Diagnostic Impression'}</p>
+                      <p className="text-sm" dir="auto">{demoResult.ai_summary.impression}</p>
+                    </div>
+                  </div>
+                )}
                 <div className="space-y-2">
                   <p className="text-sm font-medium">{t('coding.suggestedCodes')}</p>
                   {demoResult.suggested_codes.map((c) => (
@@ -326,7 +388,7 @@ export function HomePage() {
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <Label className="text-xs text-muted-foreground">{isRtl ? 'أو جرّب أحد الأمثلة الجاهزة' : 'Or try a ready-made example'}</Label>
+                    <Label className="text-xs text-muted-foreground">{isRtl ? 'أو جرّب أحد الأمثلة، أو ارفع تقريرًا نصيًا' : 'Or try an example, or upload a text report'}</Label>
                     <div className="flex flex-wrap gap-1.5">
                       {EXAMPLE_NOTES.map((ex) => (
                         <Button
@@ -341,6 +403,18 @@ export function HomePage() {
                           {isRtl ? ex.label_ar : ex.label_en}
                         </Button>
                       ))}
+                      <input ref={fileInputRef} type="file" accept=".txt,text/plain" className="hidden" onChange={handleFileUpload} />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="text-xs h-8"
+                        disabled={isAnalyzing}
+                        onClick={() => fileInputRef.current?.click()}
+                      >
+                        <Upload className="me-1.5 h-3.5 w-3.5" />
+                        {isRtl ? 'رفع تقرير (.txt)' : 'Upload Report (.txt)'}
+                      </Button>
                     </div>
                   </div>
                 )}
@@ -362,7 +436,9 @@ export function HomePage() {
               <DialogFooter>
                 <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isAnalyzing} className="min-h-[44px]">{t('common.cancel')}</Button>
                 <Button type="submit" onClick={handleAnalyze} className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white min-h-[44px] active:scale-95" disabled={isAnalyzing}>
-                  {isAnalyzing ? t('home.modal.analyzing') : t('home.modal.analyze')}
+                  {isAnalyzing
+                    ? (isAuthenticated ? t('home.modal.analyzing') : (isRtl ? 'جارٍ التحليل بالذكاء الاصطناعي...' : 'Analyzing with AI...'))
+                    : t('home.modal.analyze')}
                 </Button>
               </DialogFooter>
             </>

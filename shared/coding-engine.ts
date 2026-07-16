@@ -170,12 +170,24 @@ export interface CodingEngineResult {
   detected_language: 'en' | 'ar' | 'mixed';
   confidence_score: number;
 }
+/** AI-generated (Workers AI), best-effort clinical narrative: a chronological
+ * event timeline and a plain-language diagnostic impression, both grounded
+ * strictly in the submitted text. This is an assistive summary, not a
+ * diagnosis — always shown alongside, and subordinate to, the deterministic
+ * coding/DRG result above, which remains the explainable, reproducible
+ * source of truth. null when generation failed or was skipped; the rest of
+ * the analysis is never blocked by this being unavailable. */
+export interface AiClinicalSummary {
+  timeline: string[];
+  impression: string;
+}
 /** The public, unauthenticated demo preview additionally surfaces CDI nudges
- * (documentation-gap detection, PRD Pillar 3) alongside the coding/grouping
- * result, so the preview demonstrates all three pillars — coding, DRG
- * grouping, and CDI — not just the first two. */
+ * (documentation-gap detection, PRD Pillar 3) and an AI-generated narrative
+ * summary alongside the coding/grouping result, so the preview demonstrates
+ * all three pillars — coding, DRG grouping, and CDI — not just the first two. */
 export interface DemoAnalysisResult extends CodingEngineResult {
   nudges: Nudge[];
+  ai_summary: AiClinicalSummary | null;
 }
 /**
  * Elects the clinically dominant diagnosis (weighted by acuity, not just
