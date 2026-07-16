@@ -244,7 +244,6 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         drg: engineResult.drg,
         detected_language: engineResult.detected_language,
       };
-      await CodingJobEntity.create(c.env, newJob);
       const newAnalytics: Analytics = {
         id: crypto.randomUUID(),
         job_id: newJob.id,
@@ -258,24 +257,36 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
         department_ar: engineResult.drg.department_ar,
         created_at: new Date().toISOString(),
       };
-      await AnalyticsEntity.create(c.env, newAnalytics);
       // Generate bilingual CDI nudges for this encounter from the same lexicon pass.
       const nudges = generateCdiNudges(clinical_note, encounter_id, { age, encounterType: encounter_type });
-      for (const nudge of nudges) {
-        const existing = new NudgeEntity(c.env, nudge.id);
-        if (!(await existing.exists())) {
-          await NudgeEntity.create(c.env, nudge);
-        }
-      }
-      await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: `note.ingested.${engineResult.detected_language}`, object_type: 'coding_job', object_id: newJob.id, occurred_at: new Date().toISOString() });
+      // Every write below is independent of the others (different entities,
+      // no shared state), so they're issued concurrently instead of one
+      // sequential round trip after another — this was the single biggest
+      // contributor to ingest-note's latency (each round trip to the backing
+      // Durable Object was ~200-400ms, and up to 4-8 of them were previously
+      // chained one at a time).
+      const auditWrites = [
+        AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: `note.ingested.${engineResult.detected_language}`, object_type: 'coding_job', object_id: newJob.id, occurred_at: new Date().toISOString() }),
+      ];
       if (status === 'SENT_TO_NPHIES') {
         // This records the automation *policy* decision (PRD Phase 3: high-confidence,
         // low-complexity outpatient cases are classified for autonomous submission) —
         // it does NOT mean a claim was actually transmitted to NPHIES. No real
         // submission gateway is wired up yet (see /api/coding-jobs/:id/prepare-claim
         // and the Integration Console's live NPHIES status panel).
-        await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'claim.autonomous_phase_classified', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() });
+        auditWrites.push(AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: 'system', action: 'claim.autonomous_phase_classified', object_type: 'coding_job', object_id: jobId, occurred_at: new Date().toISOString() }));
       }
+      await Promise.all([
+        CodingJobEntity.create(c.env, newJob),
+        AnalyticsEntity.create(c.env, newAnalytics),
+        ...nudges.map(async (nudge) => {
+          const existing = new NudgeEntity(c.env, nudge.id);
+          if (!(await existing.exists())) {
+            await NudgeEntity.create(c.env, nudge);
+          }
+        }),
+        ...auditWrites,
+      ]);
       return ok(c, newJob);
     } catch (err: any) {
       console.error('ingest-note error', err);
