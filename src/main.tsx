@@ -18,6 +18,7 @@ import { ClaimsManager } from '@/pages/ClaimsManager';
 import { CDINudgesConsole } from '@/pages/CDINudgesConsole';
 import { IntegrationConsole } from '@/pages/IntegrationConsole';
 import { AuditReconciliation } from '@/pages/AuditReconciliation';
+import { AdminAccounts } from '@/pages/AdminAccounts';
 import { Login } from '@/pages/Login';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 const queryClient = new QueryClient({
@@ -67,6 +68,11 @@ const router = createBrowserRouter([
   {
     path: "/audit-reconciliation",
     element: <ProtectedRoute adminOnly={true}><AuditReconciliation /></ProtectedRoute>,
+    errorElement: <RouteErrorBoundary />,
+  },
+  {
+    path: "/accounts",
+    element: <ProtectedRoute adminOnly={true}><AdminAccounts /></ProtectedRoute>,
     errorElement: <RouteErrorBoundary />,
   },
 ]);

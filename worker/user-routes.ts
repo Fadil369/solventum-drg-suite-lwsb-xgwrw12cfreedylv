@@ -8,7 +8,8 @@ import { generateCdiNudges, generateRefinementQuestions } from "@shared/cdi-rule
 import { computeCaseMixIndex, computeDepartmentDistribution, groupEncounter } from "@shared/drg-grouper";
 import { NPHIES_BILINGUAL_FIELD_MAP } from "@shared/nphies-field-map";
 import { HOSPITAL_BRANCHES } from "@shared/hospital-branches";
-import { createToken, verifyToken, verifyPassword, type TokenPayload } from "./auth";
+import { createToken, verifyToken, verifyPassword, generateSalt, hashPassword, type TokenPayload } from "./auth";
+import type { Account } from "@shared/types";
 // API routes reachable without a valid session token. Every other /api/*
 // route requires 'Authorization: Bearer <token>' — this is a clinical
 // coding/CDI system handling patient identifiers and diagnosis text, so
@@ -112,6 +113,16 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     c.set('authUser' as never, payload as never);
     await next();
   });
+  // Route-level guard for the admin-only surfaces (Integration Console,
+  // Audit & Reconciliation, account management). Previously these pages
+  // were only hidden client-side (ProtectedRoute adminOnly) — the API
+  // routes behind them had no server-side role check at all, so any
+  // authenticated 'coder' account could call them directly.
+  const requireAdmin: Parameters<typeof app.use>[1] = async (c, next) => {
+    const payload = c.get('authUser' as never) as TokenPayload | undefined;
+    if (payload?.role !== 'admin') return c.json({ success: false, error: 'Admin access required' }, 403);
+    await next();
+  };
   // POST login: verifies a salted PBKDF2 password hash server-side and
   // issues an HMAC-signed session token. No password ever leaves the client
   // in plaintext beyond this single request, and none is ever stored in the
@@ -138,6 +149,48 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   });
   // GET current session (already validated by the middleware above).
   app.get('/api/auth/me', (c) => ok(c, c.get('authUser' as never) as TokenPayload));
+  // Admin user management: previously accounts could only be seeded, never
+  // created, listed, or removed through the running app. These three routes
+  // are the real backend for the Admin Accounts page — password_hash/salt
+  // are never included in any response.
+  const toSafeAccount = (a: Account) => ({ id: a.id, username: a.username, role: a.role });
+  app.get('/api/accounts', requireAdmin, async (c) => {
+    await AccountEntity.ensureSeed(c.env);
+    const { items } = await AccountEntity.list(c.env);
+    return ok(c, items.map(toSafeAccount));
+  });
+  app.post('/api/accounts', requireAdmin, async (c) => {
+    const body = (await c.req.json().catch(() => ({}))) as { username?: string; password?: string; role?: string };
+    const { username, password, role } = body;
+    if (!isStr(username) || !isStr(password)) return bad(c, 'username and password are required');
+    if (role !== 'admin' && role !== 'coder') return bad(c, "role must be 'admin' or 'coder'");
+    if (password.length < 8) return bad(c, 'password must be at least 8 characters');
+    const id = username.trim().toLowerCase();
+    if (!id) return bad(c, 'username is required');
+    const existing = new AccountEntity(c.env, id);
+    if (await existing.exists()) return c.json({ success: false, error: 'That username is already taken' }, 409);
+    const salt = generateSalt();
+    const password_hash = await hashPassword(password, salt);
+    const account = await AccountEntity.create(c.env, { id, username: id, password_hash, salt, role });
+    const actor = c.get('authUser' as never) as TokenPayload;
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: `user:${actor.username}`, action: 'account.create', object_type: 'account', object_id: id, occurred_at: new Date().toISOString() });
+    return ok(c, toSafeAccount(account));
+  });
+  app.delete('/api/accounts/:username', requireAdmin, async (c) => {
+    const id = c.req.param('username').trim().toLowerCase();
+    const actor = c.get('authUser' as never) as TokenPayload;
+    if (id === actor.username.toLowerCase()) return bad(c, 'You cannot delete your own account while signed in');
+    const target = new AccountEntity(c.env, id);
+    if (!(await target.exists())) return notFound(c, 'account');
+    if ((await target.getState()).role === 'admin') {
+      const { items } = await AccountEntity.list(c.env);
+      const adminCount = items.filter((a) => a.role === 'admin').length;
+      if (adminCount <= 1) return bad(c, 'Cannot delete the last remaining admin account');
+    }
+    await AccountEntity.delete(c.env, id);
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: `user:${actor.username}`, action: 'account.delete', object_type: 'account', object_id: id, occurred_at: new Date().toISOString() });
+    return ok(c, { deleted: true });
+  });
   // POST public, unauthenticated demo preview: runs the real bilingual coding
   // engine on the caller's own text and returns the result directly — no
   // patient, encounter, or coding-job record is created or touched. This is
@@ -209,7 +262,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     }
   });
   // GET the bilingual nphies/Etimad field mapping table (PRD Section 4.0)
-  app.get('/api/nphies-field-map', async (c) => {
+  app.get('/api/nphies-field-map', requireAdmin, async (c) => {
     c.header('Cache-Control', 'public, max-age=3600');
     return ok(c, NPHIES_BILINGUAL_FIELD_MAP);
   });
@@ -225,7 +278,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   // Tunnel-routed hostname on the same account fail with edge error 1033 (they
   // don't get intercepted by the Workers Route the way a real browser/client
   // request does). The workers.dev URL reaches the same script directly.
-  app.get('/api/nphies-status', async (c) => {
+  app.get('/api/nphies-status', requireAdmin, async (c) => {
     c.header('Cache-Control', 'public, max-age=120');
     const withTimeout = (url: string, ms = 8000) => fetch(url, { signal: AbortSignal.timeout(ms) });
     const [summaryResult, oracleResult] = await Promise.allSettled([
@@ -608,7 +661,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     return ok(c, { id: nudgeId, status: 'resolved' });
   });
   // GET Audit Logs
-  app.get('/api/audit-logs', async (c) => {
+  app.get('/api/audit-logs', requireAdmin, async (c) => {
     await ensureAllSeeds(c.env);
     c.header('Cache-Control', 'public, max-age=30');
     const limit = Number(c.req.query('limit') ?? 10);
@@ -617,7 +670,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     return ok(c, page);
   });
   // GET Payments
-  app.get('/api/payments', async (c) => {
+  app.get('/api/payments', requireAdmin, async (c) => {
     await ensureAllSeeds(c.env);
     c.header('Cache-Control', 'public, max-age=120');
     const limit = Number(c.req.query('limit') ?? 10);
@@ -626,7 +679,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     return ok(c, page);
   });
   // POST Reconcile Batch (mock)
-  app.post('/api/reconcile-batch', async (c) => {
+  app.post('/api/reconcile-batch', requireAdmin, async (c) => {
     await new Promise(resolve => setTimeout(resolve, 1500));
     const { items } = await PaymentEntity.list(c.env);
     const unreconciled = items.filter(p => !p.reconciled);

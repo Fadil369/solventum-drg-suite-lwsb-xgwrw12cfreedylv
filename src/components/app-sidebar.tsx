@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Bot, FileText, Lightbulb, Settings, Scale, LogOut } from 'lucide-react';
+import { LayoutDashboard, Bot, FileText, Lightbulb, Settings, Scale, LogOut, Users } from 'lucide-react';
 import {
   Sidebar,
   SidebarContent,
@@ -25,6 +25,7 @@ const navItems: { href: string; labelKey: TranslationKey; icon: typeof LayoutDas
 const adminNavItems: { href: string; labelKey: TranslationKey; icon: typeof Settings }[] = [
   { href: '/integration', labelKey: 'nav.integration', icon: Settings },
   { href: '/audit-reconciliation', labelKey: 'nav.auditReconciliation', icon: Scale },
+  { href: '/accounts', labelKey: 'nav.accounts', icon: Users },
 ];
 export function AppSidebar(): JSX.Element {
   const location = useLocation();

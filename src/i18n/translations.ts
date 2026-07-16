@@ -17,6 +17,7 @@ export const TRANSLATIONS = {
   'nav.cdiNudges': { en: 'CDI Nudges', ar: 'تنبيهات سلامة التوثيق' },
   'nav.integration': { en: 'Integration', ar: 'التكامل' },
   'nav.auditReconciliation': { en: 'Audit & Reconciliation', ar: 'التدقيق والمطابقة' },
+  'nav.accounts': { en: 'User Accounts', ar: 'حسابات المستخدمين' },
   'nav.admin': { en: 'Admin', ar: 'الإدارة' },
   'nav.logout': { en: 'Logout', ar: 'تسجيل الخروج' },
   'nav.welcome': { en: 'Welcome', ar: 'مرحبًا' },
@@ -163,6 +164,26 @@ export const TRANSLATIONS = {
   // --- Audit & Reconciliation ---
   'audit.title': { en: 'Audit & Reconciliation', ar: 'التدقيق والمطابقة' },
   'audit.description': { en: 'SOC2-ready audit trails and payment reconciliation.', ar: 'سجلات تدقيق جاهزة لمعيار SOC2 ومطابقة المدفوعات.' },
+  // --- Admin Accounts ---
+  'accounts.title': { en: 'User Accounts', ar: 'حسابات المستخدمين' },
+  'accounts.description': { en: 'Create, review, and remove coder and admin accounts for this workspace.', ar: 'إنشاء ومراجعة وإزالة حسابات المرمّزين والمسؤولين في مساحة العمل هذه.' },
+  'accounts.username': { en: 'Username', ar: 'اسم المستخدم' },
+  'accounts.role': { en: 'Role', ar: 'الدور' },
+  'accounts.role.admin': { en: 'Admin', ar: 'مسؤول' },
+  'accounts.role.coder': { en: 'Coder', ar: 'مرمّز' },
+  'accounts.actions': { en: 'Actions', ar: 'الإجراءات' },
+  'accounts.newAccount': { en: 'New Account', ar: 'حساب جديد' },
+  'accounts.password': { en: 'Password', ar: 'كلمة المرور' },
+  'accounts.passwordHint': { en: 'At least 8 characters', ar: 'ثمانية أحرف على الأقل' },
+  'accounts.create': { en: 'Create Account', ar: 'إنشاء الحساب' },
+  'accounts.creating': { en: 'Creating…', ar: 'جارٍ الإنشاء…' },
+  'accounts.delete': { en: 'Delete', ar: 'حذف' },
+  'accounts.deleteConfirmTitle': { en: 'Delete this account?', ar: 'هل تريد حذف هذا الحساب؟' },
+  'accounts.deleteConfirmDesc': { en: 'This immediately revokes access for this account. This cannot be undone.', ar: 'سيؤدي هذا إلى إلغاء وصول هذا الحساب فورًا. لا يمكن التراجع عن هذا الإجراء.' },
+  'accounts.createSuccess': { en: 'Account created.', ar: 'تم إنشاء الحساب.' },
+  'accounts.deleteSuccess': { en: 'Account deleted.', ar: 'تم حذف الحساب.' },
+  'accounts.empty': { en: 'No accounts found.', ar: 'لا توجد حسابات.' },
+  'accounts.you': { en: 'you', ar: 'أنت' },
 } as const;
 export type TranslationKey = keyof typeof TRANSLATIONS;
 export type Language = 'en' | 'ar';
