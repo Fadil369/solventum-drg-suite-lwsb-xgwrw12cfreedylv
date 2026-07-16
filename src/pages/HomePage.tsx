@@ -50,14 +50,18 @@ export function HomePage() {
       toast.success(isRtl ? 'تم إدخال الملاحظة بنجاح!' : 'Note ingested successfully!', {
         description: isRtl ? 'يتم تحويلك إلى مساحة الترميز لعرض النتائج.' : 'Redirecting to the Coding Workspace to see the results.',
       });
+      setIsModalOpen(false);
       navigate('/coding-workspace', { state: { codingJob: response } });
     } catch (error) {
+      // Keep the dialog open (and the typed note intact) on failure — closing
+      // it here previously threw away the physician's note on every error,
+      // forcing them to retype it before they could even try again.
       toast.error(isRtl ? 'فشل إدخال الملاحظة.' : 'Failed to ingest note.', {
         description: error instanceof Error ? error.message : (isRtl ? 'حدث خطأ غير معروف.' : 'An unknown error occurred.'),
+        action: { label: isRtl ? 'إعادة المحاولة' : 'Retry', onClick: () => { void handleAnalyze(); } },
       });
     } finally {
       setIsAnalyzing(false);
-      setIsModalOpen(false);
     }
   };
   return (

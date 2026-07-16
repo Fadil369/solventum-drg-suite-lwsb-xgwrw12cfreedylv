@@ -23,12 +23,7 @@ const reportError = (error: Error, path: string) => {
     console.error("Failed to report client error:", e);
   }
 };
-export async function api<T>(path: string, init?: ApiRequestInit): Promise<T> {
-  if (typeof window !== 'undefined' && !navigator.onLine) {
-    const offlineError = new Error('You are offline. Please check your internet connection.');
-    toast.error('Network Error', { description: offlineError.message });
-    throw offlineError;
-  }
+async function performRequest<T>(path: string, init: ApiRequestInit | undefined): Promise<T> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 30000); // 30-second timeout
   let url = `${API_BASE_URL}${path.startsWith('/') ? '' : '/'}${path}`;
@@ -79,13 +74,46 @@ export async function api<T>(path: string, init?: ApiRequestInit): Promise<T> {
     return json.data;
   } catch (error) {
     clearTimeout(timeoutId);
-    if (error instanceof Error) {
-      if (error.name !== 'AbortError') {
-        console.error(`Network or parsing error on ${path}:`, error);
-        toast.error('Network Error', { description: 'Could not connect to the server. Please try again.' });
-        reportError(error, path);
-      }
-    }
     throw error;
   }
+}
+// A request that never reached the server (DNS failure, connection reset, the
+// browser blocking it outright) surfaces as a TypeError from fetch() itself —
+// distinct from an AbortError (our own 30s timeout / caller cancellation) and
+// from the Error thrown above for a real HTTP response the server sent back.
+// Only that TypeError case is safe to retry: a genuine server response (even
+// an error one) already happened and must not be replayed, and a mutating
+// call like ingest-note must never be retried after it may have already run.
+function isRetriableNetworkError(error: unknown): boolean {
+  return error instanceof TypeError;
+}
+export async function api<T>(path: string, init?: ApiRequestInit): Promise<T> {
+  if (typeof window !== 'undefined' && !navigator.onLine) {
+    const offlineError = new Error('You are offline. Please check your internet connection.');
+    toast.error('Network Error', { description: offlineError.message });
+    throw offlineError;
+  }
+  const maxAttempts = 1 + Math.max(0, init?.retry ?? 2);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await performRequest<T>(path, init);
+    } catch (error) {
+      const canRetry = attempt < maxAttempts && isRetriableNetworkError(error);
+      if (canRetry) {
+        await new Promise((resolve) => setTimeout(resolve, 400 * attempt));
+        continue;
+      }
+      if (error instanceof Error && error.name !== 'AbortError') {
+        console.error(`Network or parsing error on ${path} (attempt ${attempt}/${maxAttempts}):`, error);
+        const description = attempt > 1
+          ? `Could not connect to the server after ${attempt} attempts (${error.message || error.name}). Please check your connection and try again.`
+          : `Could not connect to the server (${error.message || error.name}). Please try again.`;
+        toast.error('Network Error', { description });
+        reportError(error, path);
+      }
+      throw error;
+    }
+  }
+  // Unreachable: the loop above always returns or throws.
+  throw new Error('Request failed');
 }

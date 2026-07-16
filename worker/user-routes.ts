@@ -116,7 +116,13 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     return ok(c, status);
   });
   // --- SEEDING HELPER ---
+  // Once this isolate has confirmed seeds exist, skip the 8 parallel index
+  // reads on every subsequent request — pure latency with no effect after
+  // the first pass, and shaves real time off the hot request path (a cold
+  // Durable Object plus this check was measurable overhead on ingest-note).
+  let seedsEnsured = false;
   const ensureAllSeeds = async (env: Env) => {
+    if (seedsEnsured) return;
     await Promise.all([
       PatientEntity.ensureSeed(env),
       EncounterEntity.ensureSeed(env),
@@ -127,6 +133,7 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
       PaymentEntity.ensureSeed(env),
       AnalyticsEntity.ensureSeed(env),
     ]);
+    seedsEnsured = true;
   };
   // --- DEMO ROUTES (can be removed) ---
   app.get('/api/users', async (c) => {
