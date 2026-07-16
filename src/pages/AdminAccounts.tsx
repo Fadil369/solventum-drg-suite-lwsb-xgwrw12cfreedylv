@@ -20,7 +20,7 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
-import { UserPlus, ShieldCheck, User as UserIcon, Trash2 } from 'lucide-react';
+import { UserPlus, ShieldCheck, User as UserIcon, Trash2, KeyRound } from 'lucide-react';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import { AppLayout } from '@/components/layout/AppLayout';
@@ -40,6 +40,8 @@ export function AdminAccounts() {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'admin' | 'coder'>('coder');
+  const [resetTarget, setResetTarget] = useState<SafeAccount | null>(null);
+  const [resetPassword, setResetPassword] = useState('');
   const { data: accounts, isLoading } = useQuery({
     queryKey: ['accounts'],
     queryFn: () => api<SafeAccount[]>('/api/accounts'),
@@ -61,6 +63,15 @@ export function AdminAccounts() {
     onSuccess: () => {
       toast.success(t('accounts.deleteSuccess'));
       queryClient.invalidateQueries({ queryKey: ['accounts'] });
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+  const resetPasswordMutation = useMutation({
+    mutationFn: () => api(`/api/accounts/${resetTarget!.username}/password`, { method: 'POST', body: JSON.stringify({ password: resetPassword }) }),
+    onSuccess: () => {
+      toast.success(t('accounts.resetSuccess'));
+      setResetTarget(null);
+      setResetPassword('');
     },
     onError: (err: Error) => toast.error(err.message),
   });
@@ -161,25 +172,38 @@ export function AdminAccounts() {
                             </Badge>
                           </TableCell>
                           <TableCell className="text-end">
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button variant="ghost" size="icon" disabled={isSelf} className="h-9 w-9 text-destructive hover:text-destructive">
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>{t('accounts.deleteConfirmTitle')}</AlertDialogTitle>
-                                  <AlertDialogDescription>{t('accounts.deleteConfirmDesc')}</AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
-                                  <AlertDialogAction onClick={() => deleteMutation.mutate(a.username)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                                    {t('accounts.delete')}
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
+                            <div className="flex items-center justify-end gap-1">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                className="h-9 w-9"
+                                onClick={() => {
+                                  setResetTarget(a);
+                                  setResetPassword('');
+                                }}
+                              >
+                                <KeyRound className="h-4 w-4" />
+                              </Button>
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="ghost" size="icon" disabled={isSelf} className="h-9 w-9 text-destructive hover:text-destructive">
+                                    <Trash2 className="h-4 w-4" />
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>{t('accounts.deleteConfirmTitle')}</AlertDialogTitle>
+                                    <AlertDialogDescription>{t('accounts.deleteConfirmDesc')}</AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>{t('common.cancel')}</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => deleteMutation.mutate(a.username)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                                      {t('accounts.delete')}
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
                           </TableCell>
                         </TableRow>
                       );
@@ -197,6 +221,31 @@ export function AdminAccounts() {
           </CardContent>
         </Card>
       </div>
+      <Dialog open={resetTarget !== null} onOpenChange={(open) => !open && setResetTarget(null)}>
+        <DialogContent>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              resetPasswordMutation.mutate();
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t('accounts.resetPasswordTitle')}</DialogTitle>
+              <DialogDescription>{resetTarget?.username}</DialogDescription>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Label htmlFor="reset-password">{t('accounts.password')}</Label>
+              <Input id="reset-password" type="password" value={resetPassword} onChange={(e) => setResetPassword(e.target.value)} required minLength={8} autoComplete="new-password" />
+              <p className="text-xs text-muted-foreground">{t('accounts.passwordHint')}</p>
+            </div>
+            <DialogFooter>
+              <Button type="submit" disabled={resetPasswordMutation.isPending} className="min-h-[44px]">
+                {resetPasswordMutation.isPending ? t('accounts.creating') : t('accounts.resetPassword')}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <Toaster richColors closeButton />
     </AppLayout>
   );

@@ -191,6 +191,23 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
     await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: `user:${actor.username}`, action: 'account.delete', object_type: 'account', object_id: id, occurred_at: new Date().toISOString() });
     return ok(c, { deleted: true });
   });
+  // POST reset any account's password (admin-only) — re-salts and re-hashes
+  // rather than touching the existing salt, so this is a full credential
+  // rotation, not a weaker in-place update.
+  app.post('/api/accounts/:username/password', requireAdmin, async (c) => {
+    const id = c.req.param('username').trim().toLowerCase();
+    const { password } = (await c.req.json().catch(() => ({}))) as { password?: string };
+    if (!isStr(password)) return bad(c, 'password is required');
+    if (password.length < 8) return bad(c, 'password must be at least 8 characters');
+    const target = new AccountEntity(c.env, id);
+    if (!(await target.exists())) return notFound(c, 'account');
+    const salt = generateSalt();
+    const password_hash = await hashPassword(password, salt);
+    await target.patch({ salt, password_hash });
+    const actor = c.get('authUser' as never) as TokenPayload;
+    await AuditLogEntity.create(c.env, { id: crypto.randomUUID(), actor: `user:${actor.username}`, action: 'account.password_reset', object_type: 'account', object_id: id, occurred_at: new Date().toISOString() });
+    return ok(c, { id, reset: true });
+  });
   // POST public, unauthenticated demo preview: runs the real bilingual coding
   // engine on the caller's own text and returns the result directly — no
   // patient, encounter, or coding-job record is created or touched. This is

@@ -184,6 +184,9 @@ export const TRANSLATIONS = {
   'accounts.deleteSuccess': { en: 'Account deleted.', ar: 'تم حذف الحساب.' },
   'accounts.empty': { en: 'No accounts found.', ar: 'لا توجد حسابات.' },
   'accounts.you': { en: 'you', ar: 'أنت' },
+  'accounts.resetPasswordTitle': { en: 'Reset Password', ar: 'إعادة تعيين كلمة المرور' },
+  'accounts.resetPassword': { en: 'Reset Password', ar: 'إعادة تعيين كلمة المرور' },
+  'accounts.resetSuccess': { en: 'Password reset.', ar: 'تم إعادة تعيين كلمة المرور.' },
 } as const;
 export type TranslationKey = keyof typeof TRANSLATIONS;
 export type Language = 'en' | 'ar';
