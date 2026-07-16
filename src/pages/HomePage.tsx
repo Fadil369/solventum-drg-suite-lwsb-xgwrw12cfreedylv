@@ -1,21 +1,24 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Zap, ShieldCheck, ArrowRight, Database, Scale, Stethoscope, Lightbulb } from 'lucide-react';
+import { Zap, ShieldCheck, ArrowRight, Database, Scale, Stethoscope, Lightbulb, LogIn, RotateCcw, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
+import { Badge } from '@/components/ui/badge';
 import { ThemeToggle } from '@/components/ThemeToggle';
 import { LanguageToggle } from '@/components/LanguageToggle';
 import { Toaster, toast } from 'sonner';
 import { api } from '@/lib/api-client';
 import { motion } from 'framer-motion';
 import type { CodingJob, HospitalBranchId } from '@shared/types';
+import type { CodingEngineResult } from '@shared/coding-engine';
 import { HOSPITAL_BRANCHES } from '@shared/hospital-branches';
 import { cn } from '@/lib/utils';
 import { useLanguage } from '@/hooks/use-language';
+import { useAuth } from '@/hooks/use-auth';
 const FeatureCard = ({ icon, title, description }: { icon: React.ReactNode; title: string; description: string }) => (
   <Card className="text-center bg-card/50 backdrop-blur-sm floating-card">
     <CardHeader>
@@ -34,8 +37,14 @@ export function HomePage() {
   const [noteText, setNoteText] = useState('');
   const [branch, setBranch] = useState<HospitalBranchId | ''>('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [demoResult, setDemoResult] = useState<CodingEngineResult | null>(null);
   const navigate = useNavigate();
-  const { t, isRtl } = useLanguage();
+  const { t, language, isRtl } = useLanguage();
+  const isAuthenticated = useAuth((s) => s.isAuthenticated);
+  const resetModal = () => {
+    setDemoResult(null);
+    setNoteText('');
+  };
   const handleAnalyze = async () => {
     if (!noteText.trim()) {
       toast.error(isRtl ? 'يرجى لصق ملاحظة سريرية للتحليل.' : 'Please paste a clinical note to analyze.');
@@ -43,15 +52,30 @@ export function HomePage() {
     }
     setIsAnalyzing(true);
     try {
-      const response = await api<CodingJob>('/api/ingest-note', {
-        method: 'POST',
-        body: JSON.stringify({ clinical_note: noteText, branch: branch || undefined }),
-      });
-      toast.success(isRtl ? 'تم إدخال الملاحظة بنجاح!' : 'Note ingested successfully!', {
-        description: isRtl ? 'يتم تحويلك إلى مساحة الترميز لعرض النتائج.' : 'Redirecting to the Coding Workspace to see the results.',
-      });
-      setIsModalOpen(false);
-      navigate('/coding-workspace', { state: { codingJob: response } });
+      // Signed-in users get the real, persisted workflow. A visitor who
+      // isn't signed in previously hit this same call, got a 401 from the
+      // server, and was silently bounced to /login with a confusing
+      // "Session Expired" message — even though they'd never had a session.
+      // They now get a genuine, unauthenticated preview instead: same coding
+      // engine, no data persisted, with a clear path to sign in for the full
+      // Coding Workspace.
+      if (isAuthenticated) {
+        const response = await api<CodingJob>('/api/ingest-note', {
+          method: 'POST',
+          body: JSON.stringify({ clinical_note: noteText, branch: branch || undefined }),
+        });
+        toast.success(isRtl ? 'تم إدخال الملاحظة بنجاح!' : 'Note ingested successfully!', {
+          description: isRtl ? 'يتم تحويلك إلى مساحة الترميز لعرض النتائج.' : 'Redirecting to the Coding Workspace to see the results.',
+        });
+        setIsModalOpen(false);
+        navigate('/coding-workspace', { state: { codingJob: response } });
+      } else {
+        const result = await api<CodingEngineResult>('/api/demo/analyze-note', {
+          method: 'POST',
+          body: JSON.stringify({ clinical_note: noteText }),
+        });
+        setDemoResult(result);
+      }
     } catch (error) {
       // Keep the dialog open (and the typed note intact) on failure — closing
       // it here previously threw away the physician's note on every error,
@@ -136,43 +160,94 @@ export function HomePage() {
       <footer className="text-center py-8 border-t">
         <p className="text-muted-foreground">{t('home.footer')}</p>
       </footer>
-      <Dialog open={isModalOpen} onOpenChange={setIsModalOpen}>
+      <Dialog open={isModalOpen} onOpenChange={(open) => { setIsModalOpen(open); if (!open) resetModal(); }}>
         <DialogContent className="sm:max-w-[625px]">
-          <DialogHeader>
-            <DialogTitle className="text-2xl font-display">{t('home.modal.title')}</DialogTitle>
-            <DialogDescription>
-              {t('home.modal.description')}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="branch-select">{isRtl ? 'الفرع' : 'Hospital Branch'}</Label>
-              <Select value={branch} onValueChange={(v) => setBranch(v as HospitalBranchId)} disabled={isAnalyzing}>
-                <SelectTrigger id="branch-select">
-                  <SelectValue placeholder={isRtl ? 'اختر الفرع (اختياري)' : 'Select branch (optional)'} />
-                </SelectTrigger>
-                <SelectContent>
-                  {HOSPITAL_BRANCHES.map((b) => (
-                    <SelectItem key={b.id} value={b.id}>{isRtl ? b.name_ar : b.name_en}</SelectItem>
+          {demoResult ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-display">{isRtl ? 'معاينة النتائج (وضع العرض التجريبي)' : 'Preview Results (Demo Mode)'}</DialogTitle>
+                <DialogDescription>
+                  {isRtl
+                    ? 'هذه معاينة مباشرة فقط — لم يتم حفظ أي بيانات. سجّل الدخول للوصول إلى مساحة الترميز الكاملة وحفظ عملك.'
+                    : 'This is a live preview only — nothing was saved. Sign in for the full Coding Workspace and to save your work.'}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-4 max-h-[50vh] overflow-y-auto">
+                <div className="rounded-lg border border-primary/20 bg-primary/5 p-4 space-y-2">
+                  <p className="text-xs uppercase tracking-wide text-muted-foreground">{t('coding.drgTitle')}</p>
+                  <p className="font-semibold font-display">
+                    {demoResult.drg.subclass} · {language === 'ar' ? demoResult.drg.title_ar : demoResult.drg.title_en}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" className="gap-1"><Building2 className="h-3 w-3" />{language === 'ar' ? demoResult.drg.department_ar : demoResult.drg.department_en}</Badge>
+                    <Badge variant="secondary">{isRtl ? 'الثقة' : 'Confidence'}: {(demoResult.confidence_score * 100).toFixed(0)}%</Badge>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">{t('coding.suggestedCodes')}</p>
+                  {demoResult.suggested_codes.map((c) => (
+                    <div key={c.code} className="flex items-center justify-between gap-2 rounded-md border px-3 py-2 text-sm">
+                      <span className="font-mono font-medium">{c.code}</span>
+                      <span className="flex-1 text-muted-foreground truncate" dir="auto">{language === 'ar' && c.desc_ar ? c.desc_ar : c.desc}</span>
+                      {c.is_principal && <Badge variant="secondary" className="text-2xs shrink-0">{t('coding.principal')}</Badge>}
+                    </div>
                   ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <Textarea
-              placeholder={t('home.modal.placeholder')}
-              className={cn("min-h-[200px] text-base", isAnalyzing && "shimmer-bg")}
-              value={noteText}
-              onChange={(e) => setNoteText(e.target.value)}
-              disabled={isAnalyzing}
-              dir="auto"
-            />
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isAnalyzing} className="min-h-[44px]">{t('common.cancel')}</Button>
-            <Button type="submit" onClick={handleAnalyze} className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white min-h-[44px] active:scale-95" disabled={isAnalyzing}>
-              {isAnalyzing ? t('home.modal.analyzing') : t('home.modal.analyze')}
-            </Button>
-          </DialogFooter>
+                </div>
+              </div>
+              <DialogFooter className="gap-2 sm:gap-0">
+                <Button type="button" variant="secondary" onClick={resetModal} className="min-h-[44px]">
+                  <RotateCcw className="me-2 h-4 w-4" />{isRtl ? 'جرّب ملاحظة أخرى' : 'Try Another Note'}
+                </Button>
+                <Button type="button" asChild className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white min-h-[44px]">
+                  <Link to="/login"><LogIn className="me-2 h-4 w-4" />{isRtl ? 'سجّل الدخول للوصول الكامل' : 'Sign In For Full Access'}</Link>
+                </Button>
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-2xl font-display">{t('home.modal.title')}</DialogTitle>
+                <DialogDescription>
+                  {isAuthenticated
+                    ? t('home.modal.description')
+                    : (isRtl
+                        ? 'أنت لست مسجلاً الدخول — ستحصل على معاينة تجريبية فقط، ولن يتم حفظ أي بيانات. سجّل الدخول للوصول إلى مساحة الترميز الكاملة.'
+                        : "You're not signed in — you'll get a live preview only, and nothing will be saved. Sign in for the full Coding Workspace.")}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4 space-y-4">
+                {isAuthenticated && (
+                  <div className="space-y-2">
+                    <Label htmlFor="branch-select">{isRtl ? 'الفرع' : 'Hospital Branch'}</Label>
+                    <Select value={branch} onValueChange={(v) => setBranch(v as HospitalBranchId)} disabled={isAnalyzing}>
+                      <SelectTrigger id="branch-select">
+                        <SelectValue placeholder={isRtl ? 'اختر الفرع (اختياري)' : 'Select branch (optional)'} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {HOSPITAL_BRANCHES.map((b) => (
+                          <SelectItem key={b.id} value={b.id}>{isRtl ? b.name_ar : b.name_en}</SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <Textarea
+                  placeholder={t('home.modal.placeholder')}
+                  className={cn("min-h-[200px] text-base", isAnalyzing && "shimmer-bg")}
+                  value={noteText}
+                  onChange={(e) => setNoteText(e.target.value)}
+                  disabled={isAnalyzing}
+                  dir="auto"
+                />
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="secondary" onClick={() => setIsModalOpen(false)} disabled={isAnalyzing} className="min-h-[44px]">{t('common.cancel')}</Button>
+                <Button type="submit" onClick={handleAnalyze} className="bg-[#0E5FFF] hover:bg-[#0E5FFF]/90 text-white min-h-[44px] active:scale-95" disabled={isAnalyzing}>
+                  {isAnalyzing ? t('home.modal.analyzing') : t('home.modal.analyze')}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
       <Toaster richColors closeButton />

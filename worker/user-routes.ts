@@ -12,8 +12,12 @@ import { createToken, verifyToken, verifyPassword, type TokenPayload } from "./a
 // API routes reachable without a valid session token. Every other /api/*
 // route requires 'Authorization: Bearer <token>' — this is a clinical
 // coding/CDI system handling patient identifiers and diagnosis text, so
-// unauthenticated read/write access is not acceptable even for a demo.
-const PUBLIC_API_PATHS = new Set(['/api/auth/login', '/api/health', '/api/client-errors']);
+// unauthenticated read/write access to any stored record is not acceptable
+// even for a demo. /api/demo/analyze-note is the one deliberate exception:
+// it is pure computation over the caller's own input with no read or write
+// to any stored entity (no patient, encounter, or coding-job record is ever
+// touched), so it carries none of the risk that rule guards against.
+const PUBLIC_API_PATHS = new Set(['/api/auth/login', '/api/health', '/api/client-errors', '/api/demo/analyze-note']);
 function getAuthSecret(env: Env): string {
   const secret = (env as unknown as { AUTH_SECRET?: string }).AUTH_SECRET;
   if (!secret) throw new Error('AUTH_SECRET is not configured on this Worker (wrangler secret put AUTH_SECRET)');
@@ -63,6 +67,28 @@ export function userRoutes(app: Hono<{ Bindings: Env }>) {
   });
   // GET current session (already validated by the middleware above).
   app.get('/api/auth/me', (c) => ok(c, c.get('authUser' as never) as TokenPayload));
+  // POST public, unauthenticated demo preview: runs the real bilingual coding
+  // engine on the caller's own text and returns the result directly — no
+  // patient, encounter, or coding-job record is created or touched. This is
+  // what backs the homepage's "Start Demo" flow for visitors who aren't
+  // signed in; signed-in users get the full persisted workflow via
+  // /api/ingest-note instead. Length-capped since it's unauthenticated.
+  const DEMO_NOTE_MAX_LENGTH = 4000;
+  app.post('/api/demo/analyze-note', async (c) => {
+    const body = await c.req.json().catch(() => ({}));
+    const clinical_note: string = body?.clinical_note;
+    if (!isStr(clinical_note) || !clinical_note.trim()) return bad(c, 'clinical_note is required');
+    if (clinical_note.length > DEMO_NOTE_MAX_LENGTH) {
+      return bad(c, `clinical_note must be ${DEMO_NOTE_MAX_LENGTH} characters or fewer for the public demo — sign in for the full workspace`);
+    }
+    try {
+      const engineResult = runCodingEngine(clinical_note);
+      return ok(c, engineResult);
+    } catch (err) {
+      console.error('demo/analyze-note error', err);
+      return bad(c, 'failed to analyze note');
+    }
+  });
   // GET the bilingual nphies/Etimad field mapping table (PRD Section 4.0)
   app.get('/api/nphies-field-map', async (c) => {
     c.header('Cache-Control', 'public, max-age=3600');
