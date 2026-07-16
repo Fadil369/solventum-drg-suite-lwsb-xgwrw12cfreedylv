@@ -96,6 +96,73 @@ def contains_any(haystack: str, needles: List[str]) -> bool:
     return any(_word_boundary_pattern(n).search(haystack) for n in needles)
 
 
+NEGATION_CONTEXT_WINDOW = 40
+# Clause boundaries a post-term negator must not cross: "Chest pain,
+# myocardial infarction ruled out" must negate only "myocardial infarction"
+# — if the post-window weren't clause-bounded, "ruled out" would fall
+# within 40 raw characters of "chest pain" too and wrongly negate an
+# entirely different, earlier clause's diagnosis.
+_CLAUSE_BOUNDARY_RE = re.compile(r"[.,;:\n]")
+# Generic short negators are deliberately excluded from the comma-shorthand
+# opener check below: "no"/"not"/"without" routinely open an unrelated
+# continuation clause that has nothing to do with the preceding term (e.g.
+# "pneumonia, no further detail documented" is a documentation-completeness
+# remark, not a negation of pneumonia) — unlike "ruled out"/"excluded"/
+# "unlikely"/etc., which are specific enough that they only ever appear as
+# an actual verdict on the term they follow.
+_GENERIC_SHORT_NEGATORS = {"no", "not", "without"}
+_SHORTHAND_VERDICT_TERMS = [
+    t for t in (NEGATION_TERMS_EN + NEGATION_TERMS_AR + UNCERTAINTY_TERMS_EN + UNCERTAINTY_TERMS_AR)
+    if t.lower() not in _GENERIC_SHORT_NEGATORS
+]
+
+
+def _opens_with_term(text: str, terms: List[str]) -> bool:
+    """Does `text` open (respecting a word boundary, so "no" can't match
+    "normal") with one of `terms`? Used only for the comma-shorthand case
+    below — a plain substring check would reintroduce the cross-clause bug
+    get_surrounding_context exists to avoid."""
+    for t in terms:
+        lower = t.lower()
+        if not text.startswith(lower):
+            continue
+        next_char = text[len(lower): len(lower) + 1]
+        if not next_char or not next_char.isalnum():
+            return True
+    return False
+
+
+def get_surrounding_context(normalized: str, match_start: int, match_end: int) -> str:
+    """Text surrounding a match, used to detect negation/uncertainty. Clinical
+    notes phrase a negative or uncertain finding either BEFORE the diagnosis
+    term ("no fever", "denies chest pain", "suspected pneumonia") or AFTER it
+    ("myocardial infarction ruled out", "sepsis excluded", "pneumonia
+    unlikely") — checking only the text before the match silently coded
+    conditions the note explicitly excluded, e.g. "Chest pain, myocardial
+    infarction ruled out" was coded as a positive MI. The post-side is
+    truncated at the next clause boundary (comma, period, semicolon, colon,
+    newline) since a post-position negator normally applies within the same
+    clause as the term it modifies; the pre-side keeps its original
+    raw-window behavior to avoid changing already-tested matches.
+    One shorthand is special-cased: "<term>, ruled out" / "<term>, rule out"
+    — extremely common ED/radiology dictation ("chest pain, MI rule out") —
+    where the verdict sits just past a single leading comma. That's allowed
+    ONLY when the negator/uncertainty word is the very first token after the
+    comma (not merely present somewhere in that clause), so an unrelated next
+    item in a list ("chest pain, myocardial infarction ruled out" — from
+    chest pain's point of view) still can't be swept in.
+    Mirrors shared/coding-engine.ts getSurroundingContext.
+    """
+    pre_start = max(0, match_start - NEGATION_CONTEXT_WINDOW)
+    pre = normalized[pre_start:match_start].lower()
+    post_raw = normalized[match_end: match_end + NEGATION_CONTEXT_WINDOW].lower()
+    boundary_match = _CLAUSE_BOUNDARY_RE.search(post_raw)
+    direct_post = post_raw if boundary_match is None else post_raw[: boundary_match.start()]
+    after_leading_comma = re.sub(r"^[,،؛\s]+", "", post_raw)
+    shorthand_post = after_leading_comma if _opens_with_term(after_leading_comma, _SHORTHAND_VERDICT_TERMS) else ""
+    return f"{pre} {direct_post} {shorthand_post}"
+
+
 def match_clinical_text(raw_text: str) -> List[Dict[str, Any]]:
     """Scans normalized clinical text against every lexicon entry in both languages."""
     normalized = strip_diacritics(raw_text)
@@ -114,10 +181,10 @@ def match_clinical_text(raw_text: str) -> List[Dict[str, Any]]:
                 m = _word_boundary_pattern(syn).search(normalized)
                 if not m:
                     continue
-                context = normalized[max(0, m.start() - 40): m.start()]
+                context = get_surrounding_context(normalized, m.start(), m.end())
                 # Check both languages' negation/uncertainty terms regardless of
                 # the matched synonym's language: code-switched notes routinely
-                # negate a term in one language right before the diagnosis term
+                # negate a term in one language right next to the diagnosis term
                 # in the other (e.g. Arabic "لا" preceding an English diagnosis
                 # name). Mirrors shared/coding-engine.ts matchClinicalText.
                 if contains_any(context, NEGATION_TERMS_EN) or contains_any(context, NEGATION_TERMS_AR):
@@ -155,7 +222,7 @@ def match_procedures(raw_text: str) -> List[Dict[str, Any]]:
                 m = _word_boundary_pattern(syn).search(normalized)
                 if not m:
                     continue
-                context = normalized[max(0, m.start() - 40): m.start()]
+                context = get_surrounding_context(normalized, m.start(), m.end())
                 if contains_any(context, NEGATION_TERMS_EN) or contains_any(context, NEGATION_TERMS_AR):
                     continue
                 matches[entry["code"]] = {"entry": entry, "matched_text": syn}

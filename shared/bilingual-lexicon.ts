@@ -521,6 +521,11 @@ export const BILINGUAL_LEXICON: LexiconEntry[] = [
     soi_weight: 3,
     rom_weight: 3,
     drg_family: '468',
+    // A note mentioning both generic "diabetes" and "DKA" would otherwise
+    // code E11.9 ("without complications") alongside this — a direct
+    // contradiction, since the same diabetes clearly does have a
+    // complication. The more specific code always wins.
+    supersedes: ['E11.9'],
   },
   {
     code: 'E16.2',
@@ -1023,6 +1028,11 @@ export const BILINGUAL_LEXICON: LexiconEntry[] = [
     soi_weight: 1,
     rom_weight: 1,
     drg_family: '561',
+    // A note describing a labor that converted to cesarean ("attempted
+    // vaginal delivery, converted to emergency cesarean") would otherwise
+    // match both O80 (normal delivery) and O82 — but the delivery that
+    // actually happened was the cesarean, so it wins.
+    supersedes: ['O80'],
   },
   {
     code: 'O14.90',
@@ -1126,9 +1136,15 @@ export const BILINGUAL_LEXICON: LexiconEntry[] = [
     drg_family: '632',
   },
 ];
-/** Words that negate a match in either language (handled by the NLU tokenizer). */
-export const NEGATION_TERMS_EN = ['no', 'not', 'denies', 'without', 'ruled out', 'negative for'];
-export const NEGATION_TERMS_AR = ['لا يوجد', 'ينفي', 'بدون', 'سلبي', 'استبعاد'];
+/** Words that negate a match in either language (handled by the NLU tokenizer).
+ * Includes both pre-term phrasing ("no fever", "denies chest pain") and
+ * post-term phrasing ("myocardial infarction ruled out", "sepsis excluded",
+ * "pneumonia unlikely") — the matcher checks both sides of the match. */
+export const NEGATION_TERMS_EN = [
+  'no', 'not', 'denies', 'denied', 'without', 'ruled out', 'negative for',
+  'excluded', 'unlikely', 'resolved', 'absent', 'not detected', 'not present', 'not found',
+];
+export const NEGATION_TERMS_AR = ['لا يوجد', 'ينفي', 'بدون', 'سلبي', 'استبعاد', 'غير موجود', 'غائب', 'سالب'];
 /** Words that mark a diagnosis as suspected rather than confirmed, lowering confidence. */
 export const UNCERTAINTY_TERMS_EN = ['suspected', 'possible', 'probable', 'rule out', 'query'];
 export const UNCERTAINTY_TERMS_AR = ['يشتبه', 'محتمل', 'مرجح', 'استبعاد'];

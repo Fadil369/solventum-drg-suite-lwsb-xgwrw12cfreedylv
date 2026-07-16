@@ -100,11 +100,73 @@ def test_uncertainty_lowers_confidence():
     assert match["confidence"] < match["entry"]["base_confidence"]
 
 
+# --- Post-position negation/uncertainty (verdict stated AFTER the term) ---
+def test_post_position_negation_ruled_out_directly_after_term():
+    matches = match_clinical_text("Chest pain, myocardial infarction ruled out.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "I21.9" not in codes
+    assert "R07.9" in codes  # the unrelated earlier clause's diagnosis must survive
+
+
+def test_post_position_negation_ruled_out_with_intervening_words():
+    matches = match_clinical_text("Patient presents with chest pain. MI was ruled out after serial troponins.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "I21.9" not in codes
+    assert "R07.9" in codes
+
+
+def test_post_position_negation_excluded():
+    matches = match_clinical_text("Sepsis was excluded after workup; patient has simple UTI.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "A41.9" not in codes
+    assert "N39.0" in codes
+
+
+def test_post_position_negation_does_not_cross_unrelated_clause():
+    # "no further detail documented" is a documentation-completeness remark
+    # about pneumonia, not a negation of it — the comma-shorthand verdict
+    # check must not treat every clause-initial "no" as a verdict.
+    matches = match_clinical_text("Patient has pneumonia, no further detail documented.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "J18.9" in codes
+
+
+def test_post_position_uncertainty_comma_shorthand():
+    # "<term>, rule out" is common ED/radiology shorthand and must still
+    # mark the diagnosis uncertain, not drop it or treat it as negated.
+    matches = match_clinical_text("Consider MI, rule out.")
+    match = next(m for m in matches if m["entry"]["code"] == "I21.9")
+    assert match["uncertain"] is True
+
+
+def test_negated_procedure_post_position():
+    procs = match_procedures("Appendectomy was not performed; managed conservatively.")
+    codes = {p["entry"]["code"] for p in procs}
+    assert "PR-APPY" not in codes
+
+
 def test_specific_fracture_supersedes_generic():
     matches = match_clinical_text("Left leg fracture after fall, left tibia fracture confirmed on x-ray.")
     codes = {m["entry"]["code"] for m in matches}
     assert "S82.202A" in codes
     assert "S82.90XA" not in codes  # superseded by the more specific code
+
+
+# --- Contradiction verification: a note can't logically have both the
+# generic/uncomplicated variant of a condition AND its more specific
+# complicated variant, or two mutually exclusive delivery outcomes.
+def test_diabetic_ketoacidosis_supersedes_uncomplicated_diabetes():
+    matches = match_clinical_text("Patient with known diabetes presents with DKA, diabetic ketoacidosis confirmed.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "E11.10" in codes
+    assert "E11.9" not in codes  # "without complications" contradicts the DKA finding
+
+
+def test_cesarean_supersedes_normal_delivery():
+    matches = match_clinical_text("Attempted vaginal delivery, converted to emergency cesarean section.")
+    codes = {m["entry"]["code"] for m in matches}
+    assert "O82" in codes
+    assert "O80" not in codes  # the delivery that actually happened was the cesarean
 
 
 # --- Full engine run ---

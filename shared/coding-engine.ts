@@ -76,6 +76,66 @@ export function buildRegexForTerm(term: string): RegExp {
 export function containsAny(haystack: string, needles: string[]): boolean {
   return needles.some((n) => buildRegexForTerm(n).test(haystack));
 }
+const NEGATION_CONTEXT_WINDOW = 40;
+// Clause boundaries a post-term negator must not cross: "Chest pain,
+// myocardial infarction ruled out" must negate only "myocardial
+// infarction" — if the post-window weren't clause-bounded, "ruled out"
+// would fall within 40 raw characters of "chest pain" too and wrongly
+// negate an entirely different, earlier clause's diagnosis.
+const CLAUSE_BOUNDARY_RE = /[.,;:\n]/;
+// Generic short negators are deliberately excluded from the comma-shorthand
+// opener check below: "no"/"not"/"without" routinely open an unrelated
+// continuation clause that has nothing to do with the preceding term (e.g.
+// "pneumonia, no further detail documented" is a documentation-completeness
+// remark, not a negation of pneumonia) — unlike "ruled out"/"excluded"/
+// "unlikely"/etc., which are specific enough that they only ever appear as
+// an actual verdict on the term they follow.
+const GENERIC_SHORT_NEGATORS = new Set(['no', 'not', 'without']);
+const SHORTHAND_VERDICT_TERMS = [
+  ...NEGATION_TERMS_EN, ...NEGATION_TERMS_AR, ...UNCERTAINTY_TERMS_EN, ...UNCERTAINTY_TERMS_AR,
+].filter((t) => !GENERIC_SHORT_NEGATORS.has(t.toLowerCase()));
+/** Does `text` open (respecting a word boundary, so "no" can't match
+ * "normal") with one of `terms`? Used only for the comma-shorthand case
+ * below — a plain `.includes()` would reintroduce the cross-clause bug this
+ * whole function exists to avoid. */
+function opensWithTerm(text: string, terms: string[]): boolean {
+  return terms.some((t) => {
+    const lower = t.toLowerCase();
+    if (!text.startsWith(lower)) return false;
+    const nextChar = text[lower.length];
+    return nextChar === undefined || !/[\p{L}\p{N}]/u.test(nextChar);
+  });
+}
+/**
+ * Text surrounding a match, used to detect negation/uncertainty. Clinical
+ * notes phrase a negative or uncertain finding either BEFORE the diagnosis
+ * term ("no fever", "denies chest pain", "suspected pneumonia") or AFTER it
+ * ("myocardial infarction ruled out", "sepsis excluded", "pneumonia
+ * unlikely") — checking only the text before the match (the previous
+ * behavior) silently coded conditions the note explicitly excluded, e.g.
+ * "Chest pain, myocardial infarction ruled out" was coded as a positive MI.
+ * The post-side is truncated at the next clause boundary (comma, period,
+ * semicolon, colon, newline) since a post-position negator normally applies
+ * within the same clause as the term it modifies; the pre-side keeps its
+ * original raw-window behavior to avoid changing already-tested matches.
+ * One shorthand is special-cased: "<term>, ruled out" / "<term>, rule out"
+ * — extremely common ED/radiology dictation ("chest pain, MI rule out") —
+ * where the verdict sits just past a single leading comma. That's allowed
+ * ONLY when the negator/uncertainty word is the very first token after the
+ * comma (not merely present somewhere in that clause), so an unrelated next
+ * item in a list ("chest pain, myocardial infarction ruled out" — from
+ * chest pain's point of view) still can't be swept in.
+ */
+function getSurroundingContext(normalized: string, matchStart: number, matchEnd: number): string {
+  const preStart = Math.max(0, matchStart - NEGATION_CONTEXT_WINDOW);
+  const pre = normalized.slice(preStart, matchStart).toLowerCase();
+  const postRaw = normalized.slice(matchEnd, Math.min(normalized.length, matchEnd + NEGATION_CONTEXT_WINDOW)).toLowerCase();
+  const boundaryIdx = postRaw.search(CLAUSE_BOUNDARY_RE);
+  const directPost = boundaryIdx === -1 ? postRaw : postRaw.slice(0, boundaryIdx);
+  const afterLeadingComma = postRaw.replace(/^[,،؛\s]+/, '');
+  const shorthandPost = opensWithTerm(afterLeadingComma, SHORTHAND_VERDICT_TERMS) ? afterLeadingComma : '';
+  return `${pre} ${directPost} ${shorthandPost}`;
+}
 export interface MatchedTermInfo {
   entry: LexiconEntry;
   matched_text: string;
@@ -103,11 +163,10 @@ export function matchClinicalText(rawText: string): MatchedTermInfo[] {
         const re = buildRegexForTerm(syn);
         const m = re.exec(normalized);
         if (!m) continue;
-        const contextStart = Math.max(0, m.index - 40);
-        const context = normalized.slice(contextStart, m.index).toLowerCase();
+        const context = getSurroundingContext(normalized, m.index, m.index + m[0].length);
         // Check both languages' negation/uncertainty terms regardless of the
         // matched synonym's language: code-switched notes routinely negate a
-        // term in one language right before the diagnosis term in the other
+        // term in one language right next to the diagnosis term in the other
         // (e.g. Arabic "لا" preceding an English diagnosis name).
         const negated = containsAny(context, NEGATION_TERMS_EN) || containsAny(context, NEGATION_TERMS_AR);
         if (negated) continue;
@@ -154,8 +213,7 @@ export function matchProcedures(rawText: string): MatchedProcedureInfo[] {
         const re = buildRegexForTerm(syn);
         const m = re.exec(normalized);
         if (!m) continue;
-        const contextStart = Math.max(0, m.index - 40);
-        const context = normalized.slice(contextStart, m.index).toLowerCase();
+        const context = getSurroundingContext(normalized, m.index, m.index + m[0].length);
         if (containsAny(context, NEGATION_TERMS_EN) || containsAny(context, NEGATION_TERMS_AR)) continue;
         let laterality: MatchedProcedureInfo['laterality'] = 'unspecified';
         if (entry.sbs_laterality) {
